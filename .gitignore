@@ -64,3 +64,7 @@ timings.log
 
 # JVM crash reports
 hs_err_pid*
+
+#jd
+bin
+aeron-archive
