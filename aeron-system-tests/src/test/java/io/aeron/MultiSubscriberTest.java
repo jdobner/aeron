@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,7 +26,7 @@ import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.Header;
 import org.agrona.concurrent.UnsafeBuffer;
 
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Mockito.*;
 
@@ -39,6 +39,7 @@ public class MultiSubscriberTest
 
     private final MediaDriver driver = MediaDriver.launch(new MediaDriver.Context()
         .errorHandler(Throwable::printStackTrace)
+        .dirDeleteOnShutdown(true)
         .threadingMode(ThreadingMode.SHARED));
 
     private final Aeron aeron = Aeron.connect();
@@ -48,7 +49,6 @@ public class MultiSubscriberTest
     {
         CloseHelper.close(aeron);
         CloseHelper.close(driver);
-        driver.context().deleteAeronDirectory();
     }
 
     @Test(timeout = 10_000)
@@ -72,26 +72,26 @@ public class MultiSubscriberTest
 
             while (!subscriptionOne.isConnected() || !subscriptionTwo.isConnected())
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             while (publication.offer(srcBuffer) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             while (subscriptionOne.poll(adapterOne, FRAGMENT_COUNT_LIMIT) == 0)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             while (subscriptionTwo.poll(adapterTwo, FRAGMENT_COUNT_LIMIT) == 0)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             verifyData(srcBuffer, mockFragmentHandlerOne);

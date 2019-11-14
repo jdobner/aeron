@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,8 +18,10 @@ package io.aeron.archive;
 import io.aeron.Subscription;
 import io.aeron.archive.client.ControlResponseAdapter;
 import io.aeron.archive.codecs.ControlResponseCode;
+import io.aeron.exceptions.AeronException;
 import io.aeron.exceptions.TimeoutException;
 import org.agrona.IoUtil;
+import org.agrona.SystemUtil;
 import org.junit.rules.TestWatcher;
 import org.junit.runner.Description;
 
@@ -43,7 +45,7 @@ public class TestUtil
 
     public static File makeTestDirectory()
     {
-        final File archiveDir = new File(IoUtil.tmpDirName(), "archive-test");
+        final File archiveDir = new File(SystemUtil.tmpDirName(), "archive-test");
         if (archiveDir.exists())
         {
             System.err.println("Warning archive directory exists, deleting: " + archiveDir.getAbsolutePath());
@@ -164,9 +166,9 @@ public class TestUtil
                 throw new IllegalStateException("unexpected interrupt in test");
             }
 
-            if (System.nanoTime() > deadlineNs)
+            if ((deadlineNs - System.nanoTime()) <= 0)
             {
-                throw new TimeoutException();
+                throw new TimeoutException(AeronException.Category.ERROR);
             }
 
             Thread.yield();

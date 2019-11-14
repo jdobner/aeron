@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,25 +15,29 @@
  */
 package io.aeron.cluster;
 
+import io.aeron.FragmentAssembler;
 import io.aeron.Subscription;
+import io.aeron.cluster.client.AeronCluster;
 import io.aeron.cluster.client.ClusterException;
 import io.aeron.cluster.codecs.*;
-import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.Header;
 import org.agrona.CloseHelper;
 import org.agrona.DirectBuffer;
 
-final class ConsensusModuleAdapter implements FragmentHandler, AutoCloseable
+final class ConsensusModuleAdapter implements AutoCloseable
 {
+    private static final int FRAGMENT_LIMIT = 10;
     private final Subscription subscription;
     private final ConsensusModuleAgent consensusModuleAgent;
     private final MessageHeaderDecoder messageHeaderDecoder = new MessageHeaderDecoder();
+    private final SessionMessageHeaderDecoder sessionMessageHeaderDecoder = new SessionMessageHeaderDecoder();
     private final ScheduleTimerDecoder scheduleTimerDecoder = new ScheduleTimerDecoder();
     private final CancelTimerDecoder cancelTimerDecoder = new CancelTimerDecoder();
     private final ServiceAckDecoder serviceAckDecoder = new ServiceAckDecoder();
     private final CloseSessionDecoder closeSessionDecoder = new CloseSessionDecoder();
     private final ClusterMembersQueryDecoder clusterMembersQueryDecoder = new ClusterMembersQueryDecoder();
     private final RemoveMemberDecoder removeMemberDecoder = new RemoveMemberDecoder();
+    private final FragmentAssembler fragmentAssembler = new FragmentAssembler(this::onFragment);
 
     ConsensusModuleAdapter(final Subscription subscription, final ConsensusModuleAgent consensusModuleAgent)
     {
@@ -48,16 +52,37 @@ final class ConsensusModuleAdapter implements FragmentHandler, AutoCloseable
 
     int poll()
     {
-        return subscription.poll(this, 1);
+        return subscription.poll(fragmentAssembler, FRAGMENT_LIMIT);
     }
 
-    public void onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)
+    @SuppressWarnings({"unused", "MethodLength"})
+    private void onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
         messageHeaderDecoder.wrap(buffer, offset);
+
+        final int schemaId = messageHeaderDecoder.schemaId();
+        if (schemaId != MessageHeaderDecoder.SCHEMA_ID)
+        {
+            throw new ClusterException("expected schemaId=" + MessageHeaderDecoder.SCHEMA_ID + ", actual=" + schemaId);
+        }
 
         final int templateId = messageHeaderDecoder.templateId();
         switch (templateId)
         {
+            case SessionMessageHeaderDecoder.TEMPLATE_ID:
+                sessionMessageHeaderDecoder.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    messageHeaderDecoder.blockLength(),
+                    messageHeaderDecoder.version());
+
+                consensusModuleAgent.onServiceMessage(
+                    sessionMessageHeaderDecoder.leadershipTermId(),
+                    buffer,
+                    offset + AeronCluster.SESSION_HEADER_LENGTH,
+                    length - AeronCluster.SESSION_HEADER_LENGTH);
+                break;
+
             case CloseSessionDecoder.TEMPLATE_ID:
                 closeSessionDecoder.wrap(
                     buffer,
@@ -87,7 +112,7 @@ final class ConsensusModuleAdapter implements FragmentHandler, AutoCloseable
                     messageHeaderDecoder.blockLength(),
                     messageHeaderDecoder.version());
 
-                consensusModuleAgent.onCancelTimer(scheduleTimerDecoder.correlationId());
+                consensusModuleAgent.onCancelTimer(cancelTimerDecoder.correlationId());
                 break;
 
             case ServiceAckDecoder.TEMPLATE_ID:
@@ -99,6 +124,7 @@ final class ConsensusModuleAdapter implements FragmentHandler, AutoCloseable
 
                 consensusModuleAgent.onServiceAck(
                     serviceAckDecoder.logPosition(),
+                    serviceAckDecoder.timestamp(),
                     serviceAckDecoder.ackId(),
                     serviceAckDecoder.relevantId(),
                     serviceAckDecoder.serviceId());
@@ -111,7 +137,9 @@ final class ConsensusModuleAdapter implements FragmentHandler, AutoCloseable
                     messageHeaderDecoder.blockLength(),
                     messageHeaderDecoder.version());
 
-                consensusModuleAgent.onClusterMembersQuery(clusterMembersQueryDecoder.correlationId());
+                consensusModuleAgent.onClusterMembersQuery(
+                    clusterMembersQueryDecoder.correlationId(),
+                    BooleanType.TRUE == clusterMembersQueryDecoder.extended());
                 break;
 
             case RemoveMemberDecoder.TEMPLATE_ID:
@@ -126,9 +154,6 @@ final class ConsensusModuleAdapter implements FragmentHandler, AutoCloseable
                     removeMemberDecoder.memberId(),
                     BooleanType.TRUE == removeMemberDecoder.isPassive());
                 break;
-
-            default:
-                throw new ClusterException("unknown template id: " + templateId);
         }
     }
 }

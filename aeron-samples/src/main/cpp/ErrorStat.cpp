@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,20 +14,20 @@
  * limitations under the License.
  */
 
-#include <util/MemoryMappedFile.h>
-#include <concurrent/errors/ErrorLogReader.h>
-#include <util/CommandOptionParser.h>
-
 #include <iostream>
 #include <atomic>
 #include <thread>
 #include <signal.h>
-#include <Context.h>
 #include <cstdio>
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <iomanip>
+
+#include "util/MemoryMappedFile.h"
+#include "util/CommandOptionParser.h"
+#include "concurrent/errors/ErrorLogReader.h"
+#include "Context.h"
 
 using namespace aeron;
 using namespace aeron::util;
@@ -35,8 +35,8 @@ using namespace aeron::concurrent;
 using namespace aeron::concurrent::errors;
 using namespace std::chrono;
 
-static const char optHelp   = 'h';
-static const char optPath   = 'p';
+static const char optHelp = 'h';
+static const char optPath = 'p';
 
 struct Settings
 {
@@ -71,10 +71,17 @@ std::string formatDate(std::int64_t millisecondsSinceEpoch)
     char timeBuffer[80];
     char msecBuffer[8];
     char tzBuffer[8];
+    struct tm localTm;
 
-    std::strftime(timeBuffer, sizeof(timeBuffer) - 1, "%Y-%m-%d %H:%M:%S.", std::localtime(&tm));
+#ifdef _MSC_VER
+    localtime_s(&localTm, &tm);
+#else
+    ::localtime_r(&tm, &localTm);
+#endif
+
+    std::strftime(timeBuffer, sizeof(timeBuffer) - 1, "%Y-%m-%d %H:%M:%S.", &localTm);
     std::snprintf(msecBuffer, sizeof(msecBuffer) - 1, "%03" PRId64, msAfterSec.count());
-    std::strftime(tzBuffer, sizeof(tzBuffer) - 1, "%z", std::localtime(&tm));
+    std::strftime(tzBuffer, sizeof(tzBuffer) - 1, "%z", &localTm);
 
     return std::string(timeBuffer) + std::string(msecBuffer) + std::string(tzBuffer);
 }
@@ -82,22 +89,25 @@ std::string formatDate(std::int64_t millisecondsSinceEpoch)
 int main (int argc, char** argv)
 {
     CommandOptionParser cp;
-    cp.addOption(CommandOption (optHelp,   0, 0, "                Displays help information."));
-    cp.addOption(CommandOption (optPath,   1, 1, "basePath        Base Path to shared memory. Default: " + Context::defaultAeronPath()));
+    cp.addOption(CommandOption(optHelp,   0, 0, "              Displays help information."));
+    cp.addOption(CommandOption(optPath,   1, 1, "basePath      Base Path to shared memory. Default: " + Context::defaultAeronPath()));
 
     try
     {
         Settings settings = parseCmdLine(cp, argc, argv);
 
-        MemoryMappedFile::ptr_t cncFile =
-            MemoryMappedFile::mapExisting((settings.basePath + "/" + CncFileDescriptor::CNC_FILE).c_str());
+        MemoryMappedFile::ptr_t cncFile = MemoryMappedFile::mapExistingReadOnly(
+            (settings.basePath + "/" + CncFileDescriptor::CNC_FILE).c_str());
 
         const std::int32_t cncVersion = CncFileDescriptor::cncVersionVolatile(cncFile);
 
-        if (cncVersion != CncFileDescriptor::CNC_VERSION)
+        if (semanticVersionMajor(cncVersion) != semanticVersionMajor(CncFileDescriptor::CNC_VERSION))
         {
-            std::cerr << "CNC version not supported: file version=" << cncVersion << std::endl;
-            return -1;
+            std::cerr << "CNC version not supported: "
+                      << " file=" << semanticVersionToString(cncVersion)
+                      << " app=" << semanticVersionToString(CncFileDescriptor::CNC_VERSION) << std::endl;
+
+            return EXIT_FAILURE;
         }
 
         AtomicBuffer errorBuffer = CncFileDescriptor::createErrorLogBuffer(cncFile);

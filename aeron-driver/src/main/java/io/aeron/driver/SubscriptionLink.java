@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,12 +15,12 @@
  */
 package io.aeron.driver;
 
+import io.aeron.CommonContext;
 import io.aeron.driver.media.ReceiveChannelEndpoint;
 import io.aeron.driver.media.UdpChannel;
 import org.agrona.concurrent.status.ReadablePosition;
 
 import java.util.IdentityHashMap;
-import java.util.Map;
 
 /**
  * Subscription registration from a client used for liveness tracking
@@ -32,11 +32,12 @@ public abstract class SubscriptionLink implements DriverManagedResource
     protected final int sessionId;
     protected final boolean hasSessionId;
     protected final boolean isSparse;
+    protected final boolean isTether;
+    protected boolean reachedEndOfLife = false;
+    protected final CommonContext.InferableBoolean group;
     protected final String channel;
     protected final AeronClient aeronClient;
-    protected final Map<Subscribable, ReadablePosition> positionBySubscribableMap = new IdentityHashMap<>();
-
-    protected boolean reachedEndOfLife = false;
+    protected final IdentityHashMap<Subscribable, ReadablePosition> positionBySubscribableMap;
 
     protected SubscriptionLink(
         final long registrationId,
@@ -52,6 +53,10 @@ public abstract class SubscriptionLink implements DriverManagedResource
         this.hasSessionId = params.hasSessionId;
         this.sessionId = params.sessionId;
         this.isSparse = params.isSparse;
+        this.isTether = params.isTether;
+        this.group = params.group;
+
+        positionBySubscribableMap = new IdentityHashMap<>(hasSessionId ? 1 : 8);
     }
 
     public long registrationId()
@@ -84,9 +89,24 @@ public abstract class SubscriptionLink implements DriverManagedResource
         return true;
     }
 
+    public boolean isRejoin()
+    {
+        return true;
+    }
+
+    public boolean isTether()
+    {
+        return isTether;
+    }
+
     public boolean isSparse()
     {
         return isSparse;
+    }
+
+    public CommonContext.InferableBoolean group()
+    {
+        return group;
     }
 
     public boolean hasSessionId()
@@ -137,7 +157,7 @@ public abstract class SubscriptionLink implements DriverManagedResource
 
     public void close()
     {
-        positionBySubscribableMap.forEach(Subscribable::removeSubscriber);
+        positionBySubscribableMap.forEach((subscribable, position) -> subscribable.removeSubscriber(this, position));
     }
 
     public void onTimeEvent(final long timeNs, final long timeMs, final DriverConductor conductor)
@@ -156,13 +176,14 @@ public abstract class SubscriptionLink implements DriverManagedResource
 
     public boolean isWildcardOrSessionIdMatch(final int sessionId)
     {
-        return !hasSessionId || (this.sessionId == sessionId);
+        return !hasSessionId || this.sessionId == sessionId;
     }
 }
 
 class NetworkSubscriptionLink extends SubscriptionLink
 {
     private final boolean isReliable;
+    private final boolean isRejoin;
     private final ReceiveChannelEndpoint channelEndpoint;
 
     NetworkSubscriptionLink(
@@ -176,12 +197,18 @@ class NetworkSubscriptionLink extends SubscriptionLink
         super(registrationId, streamId, channelUri, aeronClient, params);
 
         this.isReliable = params.isReliable;
+        this.isRejoin = params.isRejoin;
         this.channelEndpoint = channelEndpoint;
     }
 
     public boolean isReliable()
     {
         return isReliable;
+    }
+
+    public boolean isRejoin()
+    {
+        return isRejoin;
     }
 
     public ReceiveChannelEndpoint channelEndpoint()
@@ -252,7 +279,26 @@ class SpySubscriptionLink extends SubscriptionLink
     public boolean matches(final NetworkPublication publication)
     {
         return streamId == publication.streamId() &&
-            udpChannel.canonicalForm().equals(publication.channelEndpoint().udpChannel().canonicalForm()) &&
-            isWildcardOrSessionIdMatch(publication.sessionId());
+            isWildcardOrSessionIdMatch(publication.sessionId()) &&
+            udpChannel.canonicalForm().equals(publication.channelEndpoint().udpChannel().canonicalForm());
+    }
+}
+
+class UntetheredSubscription
+{
+    static final int ACTIVE = 0;
+    static final int LINGER = 1;
+    static final int RESTING = 2;
+
+    int state = ACTIVE;
+    long timeOfLastUpdateNs;
+    final SubscriptionLink subscriptionLink;
+    final ReadablePosition position;
+
+    UntetheredSubscription(final SubscriptionLink subscriptionLink, final ReadablePosition position, final long timeNs)
+    {
+        this.subscriptionLink = subscriptionLink;
+        this.position = position;
+        this.timeOfLastUpdateNs = timeNs;
     }
 }

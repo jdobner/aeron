@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,10 +18,12 @@ package io.aeron.cluster;
 import io.aeron.Publication;
 import io.aeron.cluster.codecs.*;
 import io.aeron.cluster.service.SnapshotTaker;
+import org.agrona.ExpandableRingBuffer;
+import org.agrona.MutableDirectBuffer;
 import org.agrona.concurrent.AgentInvoker;
 import org.agrona.concurrent.IdleStrategy;
 
-class ConsensusModuleSnapshotTaker extends SnapshotTaker
+class ConsensusModuleSnapshotTaker extends SnapshotTaker implements ExpandableRingBuffer.MessageConsumer
 {
     private static final int ENCODED_TIMER_LENGTH = MessageHeaderEncoder.ENCODED_LENGTH + TimerEncoder.BLOCK_LENGTH;
 
@@ -34,6 +36,52 @@ class ConsensusModuleSnapshotTaker extends SnapshotTaker
         final Publication publication, final IdleStrategy idleStrategy, final AgentInvoker aeronClientInvoker)
     {
         super(publication, idleStrategy, aeronClientInvoker);
+    }
+
+    public boolean onMessage(final MutableDirectBuffer buffer, final int offset, final int length, final int headOffset)
+    {
+        idleStrategy.reset();
+        while (true)
+        {
+            final long result = publication.offer(buffer, offset, length);
+            if (result > 0)
+            {
+                break;
+            }
+
+            checkResultAndIdle(result);
+        }
+
+        return true;
+    }
+
+    void snapshotConsensusModuleState(
+        final long nextSessionId,
+        final long nextServiceSessionId,
+        final long logServiceSessionId,
+        final int pendingMessageCapacity)
+    {
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + ConsensusModuleEncoder.BLOCK_LENGTH;
+
+        idleStrategy.reset();
+        while (true)
+        {
+            final long result = publication.tryClaim(length, bufferClaim);
+            if (result > 0)
+            {
+                consensusModuleEncoder
+                    .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
+                    .nextSessionId(nextSessionId)
+                    .nextServiceSessionId(nextServiceSessionId)
+                    .logServiceSessionId(logServiceSessionId)
+                    .pendingMessageCapacity(pendingMessageCapacity);
+
+                bufferClaim.commit();
+                break;
+            }
+
+            checkResultAndIdle(result);
+        }
     }
 
     void snapshotSession(final ClusterSession session)
@@ -53,7 +101,7 @@ class ConsensusModuleSnapshotTaker extends SnapshotTaker
                     .clusterSessionId(session.id())
                     .correlationId(session.correlationId())
                     .openedLogPosition(session.openedLogPosition())
-                    .timeOfLastActivity(session.timeOfLastActivityMs())
+                    .timeOfLastActivity(session.timeOfLastActivityNs())
                     .closeReason(session.closeReason())
                     .responseStreamId(session.responseStreamId())
                     .responseChannel(responseChannel);
@@ -87,29 +135,7 @@ class ConsensusModuleSnapshotTaker extends SnapshotTaker
         }
     }
 
-    void consensusModuleState(final long nextSessionId)
-    {
-        final int length = MessageHeaderEncoder.ENCODED_LENGTH + ConsensusModuleEncoder.BLOCK_LENGTH;
-
-        idleStrategy.reset();
-        while (true)
-        {
-            final long result = publication.tryClaim(length, bufferClaim);
-            if (result > 0)
-            {
-                consensusModuleEncoder
-                    .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
-                    .nextSessionId(nextSessionId);
-
-                bufferClaim.commit();
-                break;
-            }
-
-            checkResultAndIdle(result);
-        }
-    }
-
-    void clusterMembers(final int memberId, final int highMemberId, final ClusterMember[] members)
+    void snapshotClusterMembers(final int memberId, final int highMemberId, final ClusterMember[] members)
     {
         final String clusterMembers = ClusterMember.encodeAsString(members);
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + ClusterMembersEncoder.BLOCK_LENGTH +
@@ -133,5 +159,10 @@ class ConsensusModuleSnapshotTaker extends SnapshotTaker
 
             checkResultAndIdle(result);
         }
+    }
+
+    void snapshot(final ExpandableRingBuffer pendingServiceMessages)
+    {
+        pendingServiceMessages.forEach(this, Integer.MAX_VALUE);
     }
 }

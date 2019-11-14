@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,8 +16,11 @@
 package io.aeron.cluster.service;
 
 import io.aeron.Aeron;
+import io.aeron.DirectBufferVector;
 import io.aeron.Publication;
+import io.aeron.cluster.client.AeronCluster;
 import io.aeron.exceptions.RegistrationException;
+import io.aeron.logbuffer.BufferClaim;
 import org.agrona.CloseHelper;
 import org.agrona.DirectBuffer;
 
@@ -36,7 +39,7 @@ public class ClientSession
     private final String responseChannel;
     private final byte[] encodedPrincipal;
 
-    private final ClusteredServiceAgent cluster;
+    private final ClusteredServiceAgent clusteredServiceAgent;
     private Publication responsePublication;
     private boolean isClosing;
 
@@ -45,13 +48,13 @@ public class ClientSession
         final int responseStreamId,
         final String responseChannel,
         final byte[] encodedPrincipal,
-        final ClusteredServiceAgent cluster)
+        final ClusteredServiceAgent clusteredServiceAgent)
     {
         this.id = sessionId;
         this.responseStreamId = responseStreamId;
         this.responseChannel = responseChannel;
         this.encodedPrincipal = encodedPrincipal;
-        this.cluster = cluster;
+        this.clusteredServiceAgent = clusteredServiceAgent;
     }
 
     /**
@@ -101,9 +104,9 @@ public class ClientSession
      */
     public void close()
     {
-        if (null != cluster.getClientSession(id))
+        if (null != clusteredServiceAgent.getClientSession(id))
         {
-            cluster.closeSession(id);
+            clusteredServiceAgent.closeSession(id);
         }
     }
 
@@ -128,7 +131,60 @@ public class ClientSession
      */
     public long offer(final DirectBuffer buffer, final int offset, final int length)
     {
-        return cluster.offer(id, responsePublication, buffer, offset, length);
+        return clusteredServiceAgent.offer(id, responsePublication, buffer, offset, length);
+    }
+
+    /**
+     * Non-blocking publish by gathering buffer vectors into a message. The first vector will be replaced by the cluster
+     * egress header so must be left unused.
+     *
+     * @param vectors which make up the message.
+     * @return the same as {@link Publication#offer(DirectBufferVector[])}.
+     * @see Publication#offer(DirectBufferVector[]) when in {@link Cluster.Role#LEADER}
+     * otherwise {@link #MOCKED_OFFER}.
+     */
+    public long offer(final DirectBufferVector[] vectors)
+    {
+        return clusteredServiceAgent.offer(id, responsePublication, vectors);
+    }
+
+    /**
+     * Try to claim a range in the publication log into which a message can be written with zero copy semantics.
+     * Once the message has been written then {@link BufferClaim#commit()} should be called thus making it available.
+     * <p>
+     * On successful claim, the Cluster egress header will be written to the start of the claimed buffer section.
+     * Clients <b>MUST</b> write into the claimed buffer region at offset + {@link AeronCluster#SESSION_HEADER_LENGTH}.
+     * <pre>{@code
+     *     final DirectBuffer srcBuffer = acquireMessage();
+     *
+     *     if (session.tryClaim(length, bufferClaim) > 0L)
+     *     {
+     *         try
+     *         {
+     *              final MutableDirectBuffer buffer = bufferClaim.buffer();
+     *              final int offset = bufferClaim.offset();
+     *              // ensure that data is written at the correct offset
+     *              buffer.putBytes(offset + AeronCluster.SESSION_HEADER_LENGTH, srcBuffer, 0, length);
+     *         }
+     *         finally
+     *         {
+     *             bufferClaim.commit();
+     *         }
+     *     }
+     * }</pre>
+     *
+     * @param length      of the range to claim, in bytes.
+     * @param bufferClaim to be populated if the claim succeeds.
+     * @return The new stream position, otherwise a negative error value as specified in
+     *         {@link io.aeron.Publication#tryClaim(int, BufferClaim)}.
+     * @throws IllegalArgumentException if the length is greater than {@link io.aeron.Publication#maxPayloadLength()}.
+     * @see Publication#tryClaim(int, BufferClaim)
+     * @see BufferClaim#commit()
+     * @see BufferClaim#abort()
+     */
+    public long tryClaim(final int length, final BufferClaim bufferClaim)
+    {
+        return clusteredServiceAgent.tryClaim(id, responsePublication, length, bufferClaim);
     }
 
     void connect(final Aeron aeron)
@@ -137,10 +193,11 @@ public class ClientSession
         {
             try
             {
-                responsePublication = aeron.addExclusivePublication(responseChannel, responseStreamId);
+                responsePublication = aeron.addPublication(responseChannel, responseStreamId);
             }
-            catch (final RegistrationException ignore)
+            catch (final RegistrationException ex)
             {
+                clusteredServiceAgent.handleError(ex);
             }
         }
     }

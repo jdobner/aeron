@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,20 +22,19 @@ import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.Header;
 import org.agrona.DirectBuffer;
 
+import static io.aeron.cluster.client.AeronCluster.SESSION_HEADER_LENGTH;
+
+/**
+ * Adapter for dispatching egress messages from a cluster to a {@link EgressListener}.
+ */
 public class EgressAdapter implements FragmentHandler
 {
-    /**
-     * Length of the session header before the message.
-     */
-    public static final int SESSION_HEADER_LENGTH =
-        MessageHeaderDecoder.ENCODED_LENGTH + SessionHeaderDecoder.BLOCK_LENGTH;
-
     private final long clusterSessionId;
     private final int fragmentLimit;
     private final MessageHeaderDecoder messageHeaderDecoder = new MessageHeaderDecoder();
     private final SessionEventDecoder sessionEventDecoder = new SessionEventDecoder();
     private final NewLeaderEventDecoder newLeaderEventDecoder = new NewLeaderEventDecoder();
-    private final EgressMessageHeaderDecoder egressMessageHeaderDecoder = new EgressMessageHeaderDecoder();
+    private final SessionMessageHeaderDecoder sessionMessageHeaderDecoder = new SessionMessageHeaderDecoder();
     private final FragmentAssembler fragmentAssembler = new FragmentAssembler(this);
     private final EgressListener listener;
     private final Subscription subscription;
@@ -61,21 +60,27 @@ public class EgressAdapter implements FragmentHandler
     {
         messageHeaderDecoder.wrap(buffer, offset);
 
-        final int templateId = messageHeaderDecoder.templateId();
-        if (EgressMessageHeaderDecoder.TEMPLATE_ID == templateId)
+        final int schemaId = messageHeaderDecoder.schemaId();
+        if (schemaId != MessageHeaderDecoder.SCHEMA_ID)
         {
-            egressMessageHeaderDecoder.wrap(
+            throw new ClusterException("expected schemaId=" + MessageHeaderDecoder.SCHEMA_ID + ", actual=" + schemaId);
+        }
+
+        final int templateId = messageHeaderDecoder.templateId();
+        if (SessionMessageHeaderDecoder.TEMPLATE_ID == templateId)
+        {
+            sessionMessageHeaderDecoder.wrap(
                 buffer,
                 offset + MessageHeaderDecoder.ENCODED_LENGTH,
                 messageHeaderDecoder.blockLength(),
                 messageHeaderDecoder.version());
 
-            final long sessionId = egressMessageHeaderDecoder.clusterSessionId();
+            final long sessionId = sessionMessageHeaderDecoder.clusterSessionId();
             if (sessionId == clusterSessionId)
             {
                 listener.onMessage(
                     sessionId,
-                    egressMessageHeaderDecoder.timestamp(),
+                    sessionMessageHeaderDecoder.timestamp(),
                     buffer,
                     offset + SESSION_HEADER_LENGTH,
                     length - SESSION_HEADER_LENGTH,
@@ -128,12 +133,6 @@ public class EgressAdapter implements FragmentHandler
                 }
                 break;
             }
-
-            case ChallengeDecoder.TEMPLATE_ID:
-                break;
-
-            default:
-                throw new ClusterException("unknown templateId: " + templateId);
         }
     }
 }

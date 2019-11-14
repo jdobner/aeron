@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,18 +18,32 @@ package io.aeron.exceptions;
 import io.aeron.*;
 
 /**
- * Caused when a error occurs during addition or release of {@link Publication}s or {@link Subscription}s
+ * Caused when a error occurs during addition, modification, or release of client resources such as
+ * {@link Publication}s, {@link Subscription}s, or {@link Counter}s.
  */
 public class RegistrationException extends AeronException
 {
+    private final long correlationId;
     private final int errorCodeValue;
     private final ErrorCode errorCode;
 
-    public RegistrationException(final int errorCodeValue, final ErrorCode errorCode, final String msg)
+    public RegistrationException(
+        final long correlationId, final int errorCodeValue, final ErrorCode errorCode, final String msg)
     {
         super(msg);
+        this.correlationId = correlationId;
         this.errorCode = errorCode;
         this.errorCodeValue = errorCodeValue;
+    }
+
+    /**
+     * Get the correlation id of the command to register the resource action.
+     *
+     * @return the correlation id of the command to register the resource action.
+     */
+    public long correlationId()
+    {
+        return correlationId;
     }
 
     /**
@@ -55,6 +69,6 @@ public class RegistrationException extends AeronException
 
     public String getMessage()
     {
-        return "errorCodeValue=" + errorCodeValue + " " + super.getMessage();
+        return "correlationId=" + correlationId + ", errorCodeValue=" + errorCodeValue + ", " + super.getMessage();
     }
 }

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,8 +18,8 @@ package io.aeron.samples.archive;
 import io.aeron.logbuffer.FrameDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
 import io.aeron.samples.LogInspector;
+import io.aeron.samples.SamplesUtil;
 import org.agrona.BitUtil;
-import org.agrona.IoUtil;
 import org.agrona.concurrent.UnsafeBuffer;
 
 import java.io.File;
@@ -49,7 +49,7 @@ public class SegmentInspector
         final String fileName = args[0];
         final int messageDumpLimit = args.length >= 2 ? Integer.parseInt(args[1]) : Integer.MAX_VALUE;
         final File file = new File(fileName);
-        final ByteBuffer byteBuffer = IoUtil.mapExistingFile(file, "Archive Segment File");
+        final ByteBuffer byteBuffer = SamplesUtil.mapExistingFileReadOnly(file);
         final UnsafeBuffer segmentBuffer = new UnsafeBuffer(byteBuffer);
 
         out.println("======================================================================");

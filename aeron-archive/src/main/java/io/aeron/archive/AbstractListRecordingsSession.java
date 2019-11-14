@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,6 +15,7 @@
  */
 package io.aeron.archive;
 
+import io.aeron.Aeron;
 import org.agrona.concurrent.UnsafeBuffer;
 
 abstract class AbstractListRecordingsSession implements Session
@@ -54,7 +55,7 @@ abstract class AbstractListRecordingsSession implements Session
 
     public long sessionId()
     {
-        return Catalog.NULL_RECORD_ID;
+        return Aeron.NULL_VALUE;
     }
 
     public int doWork()
@@ -71,7 +72,7 @@ abstract class AbstractListRecordingsSession implements Session
 
     public void close()
     {
-        controlSession.onListRecordingSessionClosed(this);
+        controlSession.activeListing(null);
     }
 
     protected abstract int sendDescriptors();

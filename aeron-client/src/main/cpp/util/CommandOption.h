@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,7 +26,7 @@
 
 namespace aeron { namespace util {
 
-DECLARE_SOURCED_EXCEPTION (CommandOptionException);
+AERON_DECLARE_SOURCED_EXCEPTION (CommandOptionException, ExceptionCategory::EXCEPTION_CATEGORY_ERROR);
 
 class CommandOption
 {
@@ -61,7 +61,7 @@ public:
 
     void addParam(std::string p)
     {
-        m_params.push_back(p);
+        m_params.push_back(std::move(p));
     }
 
     void validate() const;

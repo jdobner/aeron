@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,6 +24,7 @@ import io.aeron.protocol.DataHeaderFlyweight;
 import org.agrona.CloseHelper;
 import org.agrona.DirectBuffer;
 import org.agrona.IoUtil;
+import org.agrona.SystemUtil;
 import org.agrona.collections.MutableInteger;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.After;
@@ -34,28 +35,29 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.Assert.assertFalse;
 import static org.mockito.Mockito.*;
 
 public class MultiDestinationCastTest
 {
-    private static final String PUB_MDC_DYNAMIC_URI = "aeron:udp?control=localhost:54325|control-mode=dynamic";
-    private static final String SUB1_MDC_DYNAMIC_URI = "aeron:udp?endpoint=localhost:54326|control=localhost:54325";
-    private static final String SUB2_MDC_DYNAMIC_URI = "aeron:udp?endpoint=localhost:54327|control=localhost:54325";
+    private static final String PUB_MDC_DYNAMIC_URI = "aeron:udp?control=localhost:54325";
+    private static final String SUB1_MDC_DYNAMIC_URI = "aeron:udp?control=localhost:54325|group=true";
+    private static final String SUB2_MDC_DYNAMIC_URI = "aeron:udp?control=localhost:54325|group=true";
     private static final String SUB3_MDC_DYNAMIC_URI = CommonContext.SPY_PREFIX + PUB_MDC_DYNAMIC_URI;
 
-    private static final String PUB_MDC_MANUAL_URI = "aeron:udp?control=localhost:54325|control-mode=manual";
-    private static final String SUB1_MDC_MANUAL_URI = "aeron:udp?endpoint=localhost:54326";
-    private static final String SUB2_MDC_MANUAL_URI = "aeron:udp?endpoint=localhost:54327";
+    private static final String PUB_MDC_MANUAL_URI = "aeron:udp?control-mode=manual|tags=3,4";
+    private static final String SUB1_MDC_MANUAL_URI = "aeron:udp?endpoint=localhost:54326|group=true";
+    private static final String SUB2_MDC_MANUAL_URI = "aeron:udp?endpoint=localhost:54327|group=true";
     private static final String SUB3_MDC_MANUAL_URI = CommonContext.SPY_PREFIX + PUB_MDC_MANUAL_URI;
 
     private static final int STREAM_ID = 1;
 
     private static final int TERM_BUFFER_LENGTH = LogBufferDescriptor.TERM_MIN_LENGTH;
-    private static final int NUM_MESSAGES_PER_TERM = 64;
+    private static final int MESSAGES_PER_TERM = 64;
     private static final int MESSAGE_LENGTH =
-        (TERM_BUFFER_LENGTH / NUM_MESSAGES_PER_TERM) - DataHeaderFlyweight.HEADER_LENGTH;
+        (TERM_BUFFER_LENGTH / MESSAGES_PER_TERM) - DataHeaderFlyweight.HEADER_LENGTH;
     private static final String ROOT_DIR =
-        IoUtil.tmpDirName() + "aeron-system-tests-" + UUID.randomUUID().toString() + File.separator;
+        SystemUtil.tmpDirName() + "aeron-system-tests-" + UUID.randomUUID().toString() + File.separator;
 
     private final MediaDriver.Context driverBContext = new MediaDriver.Context();
 
@@ -120,8 +122,8 @@ public class MultiDestinationCastTest
 
         while (subscriptionA.hasNoImages() || subscriptionB.hasNoImages() || subscriptionC.hasNoImages())
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
     }
 
@@ -136,19 +138,21 @@ public class MultiDestinationCastTest
 
         publication = clientA.addPublication(PUB_MDC_MANUAL_URI, STREAM_ID);
         publication.addDestination(SUB1_MDC_MANUAL_URI);
-        publication.addDestination(SUB2_MDC_MANUAL_URI);
+        final long correlationId = publication.asyncAddDestination(SUB2_MDC_MANUAL_URI);
 
         while (subscriptionA.hasNoImages() || subscriptionB.hasNoImages() || subscriptionC.hasNoImages())
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
+
+        assertFalse(clientA.isCommandActive(correlationId));
     }
 
     @Test(timeout = 10_000)
     public void shouldSendToTwoPortsWithDynamic()
     {
-        final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
+        final int numMessagesToSend = MESSAGES_PER_TERM * 3;
 
         launch();
 
@@ -159,16 +163,16 @@ public class MultiDestinationCastTest
 
         while (subscriptionA.hasNoImages() || subscriptionB.hasNoImages() || subscriptionC.hasNoImages())
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         for (int i = 0; i < numMessagesToSend; i++)
         {
             while (publication.offer(buffer, 0, buffer.capacity()) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final MutableInteger fragmentsRead = new MutableInteger();
@@ -189,7 +193,7 @@ public class MultiDestinationCastTest
     @Test(timeout = 10_000)
     public void shouldSendToTwoPortsWithDynamicSingleDriver()
     {
-        final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
+        final int numMessagesToSend = MESSAGES_PER_TERM * 3;
 
         launch();
 
@@ -200,16 +204,16 @@ public class MultiDestinationCastTest
 
         while (!subscriptionA.isConnected() || !subscriptionB.isConnected() || !subscriptionC.isConnected())
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         for (int i = 0; i < numMessagesToSend; i++)
         {
             while (publication.offer(buffer, 0, buffer.capacity()) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final MutableInteger fragmentsRead = new MutableInteger();
@@ -230,7 +234,7 @@ public class MultiDestinationCastTest
     @Test(timeout = 10_000)
     public void shouldSendToTwoPortsWithManualSingleDriver()
     {
-        final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
+        final int numMessagesToSend = MESSAGES_PER_TERM * 3;
 
         launch();
 
@@ -251,8 +255,8 @@ public class MultiDestinationCastTest
         {
             while (publication.offer(buffer, 0, buffer.capacity()) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final MutableInteger fragmentsRead = new MutableInteger();
@@ -270,7 +274,7 @@ public class MultiDestinationCastTest
     @Test(timeout = 10_000)
     public void shouldManuallyRemovePortDuringActiveStream() throws Exception
     {
-        final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
+        final int numMessagesToSend = MESSAGES_PER_TERM * 3;
         final int numMessageForSub2 = 10;
         final CountDownLatch unavailableImage = new CountDownLatch(1);
 
@@ -288,16 +292,16 @@ public class MultiDestinationCastTest
 
         while (!subscriptionA.isConnected() || !subscriptionB.isConnected())
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         for (int i = 0; i < numMessagesToSend; i++)
         {
             while (publication.offer(buffer, 0, buffer.capacity()) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final MutableInteger fragmentsRead = new MutableInteger();
@@ -331,7 +335,7 @@ public class MultiDestinationCastTest
     @Test(timeout = 10_000)
     public void shouldManuallyAddPortDuringActiveStream() throws Exception
     {
-        final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
+        final int numMessagesToSend = MESSAGES_PER_TERM * 3;
         final int numMessageForSub2 = 10;
         final CountDownLatch availableImage = new CountDownLatch(1);
 
@@ -346,16 +350,16 @@ public class MultiDestinationCastTest
 
         while (!subscriptionA.isConnected())
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         for (int i = 0; i < numMessagesToSend; i++)
         {
             while (publication.offer(buffer, 0, buffer.capacity()) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final MutableInteger fragmentsRead = new MutableInteger();

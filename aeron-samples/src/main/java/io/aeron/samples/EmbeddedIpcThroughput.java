@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,6 +29,9 @@ import static org.agrona.BitUtil.CACHE_LINE_LENGTH;
 import static org.agrona.SystemUtil.loadPropertiesFiles;
 import static org.agrona.UnsafeAccess.UNSAFE;
 
+/**
+ * Throughput test using {@link ConcurrentPublication#offer(DirectBuffer, int, int)} over IPC transport.
+ */
 public class EmbeddedIpcThroughput
 {
     public static final int BURST_LENGTH = 1_000_000;
@@ -45,13 +48,12 @@ public class EmbeddedIpcThroughput
         SigInt.register(() -> running.set(false));
 
         final MediaDriver.Context ctx = new MediaDriver.Context()
-            .threadingMode(ThreadingMode.SHARED)
-            .sharedIdleStrategy(new NoOpIdleStrategy());
+            .threadingMode(ThreadingMode.SHARED);
 
         try (MediaDriver ignore = MediaDriver.launch(ctx);
             Aeron aeron = Aeron.connect();
-            Publication publication = aeron.addPublication(CHANNEL, STREAM_ID);
-            Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID))
+            Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID);
+            Publication publication = aeron.addPublication(CHANNEL, STREAM_ID))
         {
             final Subscriber subscriber = new Subscriber(running, subscription);
             final Thread subscriberThread = new Thread(subscriber);
@@ -84,24 +86,24 @@ public class EmbeddedIpcThroughput
 
         public void run()
         {
-            long lastTimeStamp = System.currentTimeMillis();
+            long lastTimestampMs = System.currentTimeMillis();
             long lastTotalBytes = subscriber.totalBytes();
 
             while (running.get())
             {
                 LockSupport.parkNanos(1_000_000_000);
 
-                final long newTimeStamp = System.currentTimeMillis();
+                final long newTimestampMs = System.currentTimeMillis();
                 final long newTotalBytes = subscriber.totalBytes();
 
-                final long duration = newTimeStamp - lastTimeStamp;
+                final long durationMs = newTimestampMs - lastTimestampMs;
                 final long bytesTransferred = newTotalBytes - lastTotalBytes;
 
                 System.out.format(
                     "Duration %dms - %,d messages - %,d payload bytes%n",
-                    duration, bytesTransferred / MESSAGE_LENGTH, bytesTransferred);
+                    durationMs, bytesTransferred / MESSAGE_LENGTH, bytesTransferred);
 
-                lastTimeStamp = newTimeStamp;
+                lastTimestampMs = newTimestampMs;
                 lastTotalBytes = newTotalBytes;
             }
         }
@@ -120,6 +122,7 @@ public class EmbeddedIpcThroughput
 
         public void run()
         {
+            final IdleStrategy idleStrategy = SampleConfiguration.newIdleStrategy();
             final Publication publication = this.publication;
             final ByteBuffer byteBuffer = BufferUtil.allocateDirectAligned(
                 publication.maxMessageLength(), CACHE_LINE_LENGTH);
@@ -132,6 +135,7 @@ public class EmbeddedIpcThroughput
             {
                 for (int i = 0; i < BURST_LENGTH; i++)
                 {
+                    idleStrategy.reset();
                     while (publication.offer(buffer, 0, MESSAGE_LENGTH) <= 0)
                     {
                         ++backPressureCount;
@@ -139,6 +143,8 @@ public class EmbeddedIpcThroughput
                         {
                             break outputResults;
                         }
+
+                        idleStrategy.idle();
                     }
 
                     ++totalMessageCount;
@@ -190,6 +196,7 @@ public class EmbeddedIpcThroughput
             }
 
             final Image image = subscription.imageAtIndex(0);
+            final IdleStrategy idleStrategy = SampleConfiguration.newIdleStrategy();
 
             long failedPolls = 0;
             long successfulPolls = 0;
@@ -205,6 +212,8 @@ public class EmbeddedIpcThroughput
                 {
                     ++successfulPolls;
                 }
+
+                idleStrategy.idle(fragmentsRead);
             }
 
             final double failureRatio = failedPolls / (double)(successfulPolls + failedPolls);

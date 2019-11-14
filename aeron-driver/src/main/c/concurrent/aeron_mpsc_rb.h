@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -44,7 +44,7 @@ size_t aeron_mpsc_rb_read(
 
 int64_t aeron_mpsc_rb_next_correlation_id(volatile aeron_mpsc_rb_t *ring_buffer);
 
-void aeron_mpsc_rb_consumer_heartbeat_time(volatile aeron_mpsc_rb_t *ring_buffer, int64_t time);
+void aeron_mpsc_rb_consumer_heartbeat_time(volatile aeron_mpsc_rb_t *ring_buffer, int64_t now_ms);
 int64_t aeron_mpsc_rb_consumer_heartbeat_time_value(volatile aeron_mpsc_rb_t *ring_buffer);
 
 bool aeron_mpsc_rb_unblock(volatile aeron_mpsc_rb_t *ring_buffer);

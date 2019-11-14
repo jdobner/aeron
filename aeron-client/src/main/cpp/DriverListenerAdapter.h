@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,6 +26,7 @@
 #include <command/OperationSucceededFlyweight.h>
 #include <command/SubscriptionReadyFlyweight.h>
 #include <command/CounterUpdateFlyweight.h>
+#include <command/ClientTimeoutFlyweight.h>
 
 namespace aeron {
 
@@ -55,13 +56,13 @@ public:
                         const PublicationBuffersReadyFlyweight publicationReady(buffer, offset);
 
                         m_driverListener.onNewPublication(
+                            publicationReady.correlationId(),
+                            publicationReady.registrationId(),
                             publicationReady.streamId(),
                             publicationReady.sessionId(),
                             publicationReady.positionLimitCounterId(),
                             publicationReady.channelStatusIndicatorId(),
-                            publicationReady.logFileName(),
-                            publicationReady.correlationId(),
-                            publicationReady.registrationId());
+                            publicationReady.logFileName());
                         break;
                     }
 
@@ -70,13 +71,13 @@ public:
                         const PublicationBuffersReadyFlyweight publicationReady(buffer, offset);
 
                         m_driverListener.onNewExclusivePublication(
+                            publicationReady.correlationId(),
+                            publicationReady.registrationId(),
                             publicationReady.streamId(),
                             publicationReady.sessionId(),
                             publicationReady.positionLimitCounterId(),
                             publicationReady.channelStatusIndicatorId(),
-                            publicationReady.logFileName(),
-                            publicationReady.correlationId(),
-                            publicationReady.registrationId());
+                            publicationReady.logFileName());
                         break;
                     }
 
@@ -95,13 +96,12 @@ public:
                         const ImageBuffersReadyFlyweight imageReady(buffer, offset);
 
                         m_driverListener.onAvailableImage(
-                            imageReady.streamId(),
+                            imageReady.correlationId(),
                             imageReady.sessionId(),
-                            imageReady.logFileName(),
-                            imageReady.sourceIdentity(),
                             imageReady.subscriberPositionId(),
-                            imageReady.subscriberRegistrationId(),
-                            imageReady.correlationId());
+                            imageReady.subscriptionRegistrationId(),
+                            imageReady.logFileName(),
+                            imageReady.sourceIdentity());
                         break;
                     }
 
@@ -118,7 +118,6 @@ public:
                         const ImageMessageFlyweight imageMessage(buffer, offset);
 
                         m_driverListener.onUnavailableImage(
-                            imageMessage.streamId(),
                             imageMessage.correlationId(),
                             imageMessage.subscriptionRegistrationId());
                         break;
@@ -127,11 +126,21 @@ public:
                     case ControlProtocolEvents::ON_ERROR:
                     {
                         const ErrorResponseFlyweight errorResponse(buffer, offset);
+                        const std::int32_t errorCode = errorResponse.errorCode();
 
-                        m_driverListener.onErrorResponse(
-                            errorResponse.offendingCommandCorrelationId(),
-                            errorResponse.errorCode(),
-                            errorResponse.errorMessage());
+                        if (ERROR_CODE_CHANNEL_ENDPOINT_ERROR == errorCode)
+                        {
+                            m_driverListener.onChannelEndpointErrorResponse(
+                                errorResponse.offendingCommandCorrelationId(),
+                                errorResponse.errorMessage());
+                        }
+                        else
+                        {
+                            m_driverListener.onErrorResponse(
+                                errorResponse.offendingCommandCorrelationId(),
+                                errorCode,
+                                errorResponse.errorMessage());
+                        }
                         break;
                     }
 
@@ -148,6 +157,14 @@ public:
                         const CounterUpdateFlyweight response(buffer, offset);
 
                         m_driverListener.onUnavailableCounter(response.correlationId(), response.counterId());
+                        break;
+                    }
+
+                    case ControlProtocolEvents::ON_CLIENT_TIMEOUT:
+                    {
+                        const ClientTimeoutFlyweight response(buffer, offset);
+
+                        m_driverListener.onClientTimeout(response.clientId());
                         break;
                     }
 

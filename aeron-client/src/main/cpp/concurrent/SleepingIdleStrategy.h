@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,7 +25,7 @@ namespace aeron { namespace concurrent {
 class SleepingIdleStrategy
 {
 public:
-    SleepingIdleStrategy(const std::chrono::duration<long, std::milli> duration) :
+    explicit SleepingIdleStrategy(const std::chrono::duration<long, std::milli> duration) :
         m_duration(duration)
     {
     }
@@ -36,6 +36,10 @@ public:
         {
             std::this_thread::sleep_for(m_duration);
         }
+    }
+
+    inline void reset()
+    {
     }
 
     inline void idle()

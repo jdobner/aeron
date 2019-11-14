@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,14 +16,9 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <signal.h>
-#include <util/CommandOptionParser.h>
 #include <thread>
-#include <Aeron.h>
 #include <array>
-#include <concurrent/BusySpinIdleStrategy.h>
-#include "FragmentAssembler.h"
-#include "Configuration.h"
+#include <signal.h>
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
@@ -33,13 +28,19 @@ extern "C"
 #include <hdr_histogram.h>
 }
 
+#include "Configuration.h"
+#include "concurrent/BusySpinIdleStrategy.h"
+#include "util/CommandOptionParser.h"
+#include "FragmentAssembler.h"
+#include "Aeron.h"
+
 using namespace std::chrono;
 using namespace aeron::util;
 using namespace aeron;
 
-std::atomic<bool> running (true);
+std::atomic<bool> running(true);
 
-void sigIntHandler (int param)
+void sigIntHandler(int param)
 {
     running = false;
 }
@@ -62,10 +63,10 @@ struct Settings
     std::string pongChannel = samples::configuration::DEFAULT_PONG_CHANNEL;
     std::int32_t pingStreamId = samples::configuration::DEFAULT_PING_STREAM_ID;
     std::int32_t pongStreamId = samples::configuration::DEFAULT_PONG_STREAM_ID;
+    long numberOfWarmupMessages = samples::configuration::DEFAULT_NUMBER_OF_WARM_UP_MESSAGES;
     long numberOfMessages = samples::configuration::DEFAULT_NUMBER_OF_MESSAGES;
     int messageLength = samples::configuration::DEFAULT_MESSAGE_LENGTH;
     int fragmentCountLimit = samples::configuration::DEFAULT_FRAGMENT_COUNT_LIMIT;
-    long numberOfWarmupMessages = samples::configuration::DEFAULT_NUMBER_OF_MESSAGES;
 };
 
 Settings parseCmdLine(CommandOptionParser& cp, int argc, char** argv)
@@ -88,6 +89,7 @@ Settings parseCmdLine(CommandOptionParser& cp, int argc, char** argv)
     s.messageLength = cp.getOption(optLength).getParamAsInt(0, sizeof(std::int64_t), INT32_MAX, s.messageLength);
     s.fragmentCountLimit = cp.getOption(optFrags).getParamAsInt(0, 1, INT32_MAX, s.fragmentCountLimit);
     s.numberOfWarmupMessages = cp.getOption(optWarmupMessages).getParamAsLong(0, 0, LONG_MAX, s.numberOfWarmupMessages);
+
     return s;
 }
 
@@ -98,17 +100,18 @@ void sendPingAndReceivePong(
     const Settings& settings)
 {
     std::unique_ptr<std::uint8_t[]> buffer(new std::uint8_t[settings.messageLength]);
-    concurrent::AtomicBuffer srcBuffer(buffer.get(), settings.messageLength);
+    concurrent::AtomicBuffer srcBuffer(buffer.get(), static_cast<size_t>(settings.messageLength));
     BusySpinIdleStrategy idleStrategy;
 
-    while (0 == subscription.imageCount())
+    while (!subscription.isConnected())
     {
         std::this_thread::yield();
     }
 
-    Image& image = subscription.imageAtIndex(0);
+    std::shared_ptr<Image> imageSharedPtr = subscription.imageByIndex(0);
+    Image& image = *imageSharedPtr;
 
-    for (int i = 0; i < settings.numberOfMessages; i++)
+    for (long i = 0; i < settings.numberOfMessages; i++)
     {
         std::int64_t position;
 
@@ -161,16 +164,16 @@ std::shared_ptr<Publication> findPublication(std::shared_ptr<Aeron> aeron, std::
 int main(int argc, char **argv)
 {
     CommandOptionParser cp;
-    cp.addOption(CommandOption (optHelp,          0, 0, "                Displays help information."));
-    cp.addOption(CommandOption (optPrefix,        1, 1, "dir             Prefix directory for aeron driver."));
-    cp.addOption(CommandOption (optPingChannel,   1, 1, "channel         Ping Channel."));
-    cp.addOption(CommandOption (optPongChannel,   1, 1, "channel         Pong Channel."));
-    cp.addOption(CommandOption (optPingStreamId,  1, 1, "streamId        Ping Stream ID."));
-    cp.addOption(CommandOption (optPongStreamId,  1, 1, "streamId        Pong Stream ID."));
-    cp.addOption(CommandOption (optMessages,      1, 1, "number          Number of Messages."));
-    cp.addOption(CommandOption (optLength,        1, 1, "length          Length of Messages."));
-    cp.addOption(CommandOption (optFrags,         1, 1, "limit           Fragment Count Limit."));
-    cp.addOption(CommandOption (optWarmupMessages,1, 1, "number          Number of Messages for warmup."));
+    cp.addOption(CommandOption(optHelp,           0, 0, "                Displays help information."));
+    cp.addOption(CommandOption(optPrefix,         1, 1, "dir             Prefix directory for aeron driver."));
+    cp.addOption(CommandOption(optPingChannel,    1, 1, "channel         Ping Channel."));
+    cp.addOption(CommandOption(optPongChannel,    1, 1, "channel         Pong Channel."));
+    cp.addOption(CommandOption(optPingStreamId,   1, 1, "streamId        Ping Stream ID."));
+    cp.addOption(CommandOption(optPongStreamId,   1, 1, "streamId        Pong Stream ID."));
+    cp.addOption(CommandOption(optMessages,       1, 1, "number          Number of Messages."));
+    cp.addOption(CommandOption(optLength,         1, 1, "length          Length of Messages."));
+    cp.addOption(CommandOption(optFrags,          1, 1, "limit           Fragment Count Limit."));
+    cp.addOption(CommandOption(optWarmupMessages, 1, 1, "number          Number of Messages for warmup."));
 
     signal (SIGINT, sigIntHandler);
 
@@ -185,7 +188,7 @@ int main(int argc, char **argv)
         std::atomic<int> countDown(1);
         std::int64_t pongSubscriptionId, pingPublicationId, pingSubscriptionId, pongPublicationId;
 
-        if (settings.dirPrefix != "")
+        if (!settings.dirPrefix.empty())
         {
             context.aeronDir(settings.dirPrefix);
         }
@@ -219,6 +222,8 @@ int main(int argc, char **argv)
             std::cout << "Unavailable image on correlationId=" << image.correlationId() << " sessionId=" << image.sessionId();
             std::cout << " at position=" << image.position() << " from " << image.sourceIdentity() << std::endl;
         });
+
+        context.preTouchMappedMemory(true);
 
         std::shared_ptr<Aeron> aeron = Aeron::connect(context);
 
@@ -263,12 +268,13 @@ int main(int argc, char **argv)
         std::thread pongThread(
             [&]()
             {
-                while (0 == pingSubscriptionRef.imageCount())
+                while (!pingSubscriptionRef.isConnected())
                 {
                     std::this_thread::yield();
                 }
 
-                Image& image = pingSubscriptionRef.imageAtIndex(0);
+                std::shared_ptr<Image> imageSharedPtr = pingSubscriptionRef.imageByIndex(0);
+                Image& image = *imageSharedPtr;
 
                 while (running)
                 {
@@ -331,6 +337,7 @@ int main(int argc, char **argv)
                 << " RTTs/sec" << std::endl;
         }
         while (running && continuationBarrier("Execute again?"));
+
         running = false;
 
         pongThread.join();

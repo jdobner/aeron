@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,24 +19,24 @@
 
 #include "util/aeron_bitutil.h"
 #include "util/aeron_fileutil.h"
+#include "uri/aeron_uri.h"
 #include "aeron_driver_common.h"
 #include "aeron_driver_context.h"
 #include "concurrent/aeron_counters_manager.h"
 #include "aeron_system_counters.h"
 #include "aeron_retransmit_handler.h"
 
-typedef enum aeron_network_publication_status_enum
+typedef enum aeron_network_publication_state_enum
 {
-    AERON_NETWORK_PUBLICATION_STATUS_ACTIVE,
-    AERON_NETWORK_PUBLICATION_STATUS_DRAINING,
-    AERON_NETWORK_PUBLICATION_STATUS_LINGER,
-    AERON_NETWORK_PUBLICATION_STATUS_CLOSING
+    AERON_NETWORK_PUBLICATION_STATE_ACTIVE,
+    AERON_NETWORK_PUBLICATION_STATE_DRAINING,
+    AERON_NETWORK_PUBLICATION_STATE_LINGER,
+    AERON_NETWORK_PUBLICATION_STATE_CLOSING
 }
-aeron_network_publication_status_t;
+aeron_network_publication_state_t;
 
 #define AERON_NETWORK_PUBLICATION_HEARTBEAT_TIMEOUT_NS (100 * 1000 * 1000L)
 #define AERON_NETWORK_PUBLICATION_SETUP_TIMEOUT_NS (100 * 1000 * 1000L)
-#define AERON_NETWORK_PUBLICATION_CONNECTION_TIMEOUT_MS (5 * 1000L)
 
 #define AERON_NETWORK_PUBLICATION_MAX_MESSAGES_PER_SEND (2)
 
@@ -47,14 +47,14 @@ typedef struct aeron_network_publication_stct
 {
     struct aeron_network_publication_conductor_fields_stct
     {
+        bool has_reached_end_of_life;
+        aeron_network_publication_state_t state;
+        int32_t refcnt;
         aeron_driver_managed_resource_t managed_resource;
         aeron_subscribable_t subscribable;
         int64_t clean_position;
         int64_t time_of_last_activity_ns;
         int64_t last_snd_pos;
-        int32_t refcnt;
-        bool has_reached_end_of_life;
-        aeron_network_publication_status_t status;
     }
     conductor_fields;
 
@@ -62,10 +62,11 @@ typedef struct aeron_network_publication_stct
         (4 * AERON_CACHE_LINE_LENGTH) - sizeof(struct aeron_network_publication_conductor_fields_stct)];
 
     aeron_mapped_raw_log_t mapped_raw_log;
-    aeron_position_t pub_lmt_position;
     aeron_position_t pub_pos_position;
+    aeron_position_t pub_lmt_position;
     aeron_position_t snd_pos_position;
     aeron_position_t snd_lmt_position;
+    aeron_counter_t snd_bpe_counter;
     aeron_retransmit_handler_t retransmit_handler;
     aeron_logbuffer_metadata_t *log_meta_data;
     aeron_send_channel_endpoint_t *endpoint;
@@ -90,6 +91,7 @@ typedef struct aeron_network_publication_stct
     size_t mtu_length;
     bool is_exclusive;
     bool spies_simulate_connection;
+    bool signal_eos;
     bool should_send_setup_frame;
     bool has_receivers;
     bool has_spies;
@@ -115,15 +117,13 @@ int aeron_network_publication_create(
     int32_t session_id,
     int32_t stream_id,
     int32_t initial_term_id,
-    size_t mtu_length,
-    aeron_position_t *pub_lmt_position,
     aeron_position_t *pub_pos_position,
+    aeron_position_t *pub_lmt_position,
     aeron_position_t *snd_pos_position,
     aeron_position_t *snd_lmt_position,
+    aeron_counter_t *snd_bpe_counter,
     aeron_flow_control_strategy_t *flow_control_strategy,
-    uint64_t linger_timeout_ns,
-    size_t term_buffer_length,
-    bool is_sparse,
+    aeron_uri_publication_params_t *params,
     bool is_exclusive,
     bool spies_simulate_connection,
     aeron_system_counters_t *system_counters);
@@ -139,6 +139,7 @@ void aeron_network_publication_on_time_event(
     aeron_driver_conductor_t *conductor, aeron_network_publication_t *publication, int64_t now_ns, int64_t now_ms);
 
 int aeron_network_publication_send(aeron_network_publication_t *publication, int64_t now_ns);
+int aeron_network_publication_resend(void *clientd, int32_t term_id, int32_t term_offset, size_t length);
 
 int aeron_network_publication_send_data(
     aeron_network_publication_t *publication, int64_t now_ns, int64_t snd_pos, int32_t term_offset);
@@ -152,7 +153,7 @@ void aeron_network_publication_on_status_message(
 void aeron_network_publication_on_rttm(
     aeron_network_publication_t *publication, const uint8_t *buffer, size_t length, struct sockaddr_storage *addr);
 
-void aeron_network_publication_clean_buffer(aeron_network_publication_t *publication, int64_t pub_lmt);
+void aeron_network_publication_clean_buffer(aeron_network_publication_t *publication, int64_t position);
 
 int aeron_network_publication_update_pub_lmt(aeron_network_publication_t *publication);
 

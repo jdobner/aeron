@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,6 +24,7 @@ import io.aeron.status.ChannelEndpointStatus;
 import org.agrona.CloseHelper;
 import org.agrona.ErrorHandler;
 import org.agrona.IoUtil;
+import org.agrona.SystemUtil;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.*;
 import org.mockito.ArgumentCaptor;
@@ -33,8 +34,8 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.*;
-import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.mockito.Mockito.*;
@@ -54,7 +55,7 @@ public class ChannelEndpointStatusTest
     private static final int MESSAGE_LENGTH =
         (TERM_BUFFER_LENGTH / NUM_MESSAGES_PER_TERM) - DataHeaderFlyweight.HEADER_LENGTH;
     private static final String ROOT_DIR =
-        IoUtil.tmpDirName() + "aeron-system-tests-" + UUID.randomUUID().toString() + File.separator;
+        SystemUtil.tmpDirName() + "aeron-system-tests-" + UUID.randomUUID().toString() + File.separator;
 
     private Aeron clientA;
     private Aeron clientB;
@@ -130,8 +131,8 @@ public class ChannelEndpointStatusTest
 
         while (subscription.channelStatus() == ChannelEndpointStatus.INITIALIZING)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         assertThat(subscription.channelStatus(), is(ChannelEndpointStatus.ACTIVE));
@@ -144,8 +145,8 @@ public class ChannelEndpointStatusTest
 
         while (publication.channelStatus() == ChannelEndpointStatus.INITIALIZING)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         assertThat(publication.channelStatus(), is(ChannelEndpointStatus.ACTIVE));
@@ -158,8 +159,8 @@ public class ChannelEndpointStatusTest
 
         while (subscriptionA.channelStatus() == ChannelEndpointStatus.INITIALIZING)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         assertThat(subscriptionA.channelStatus(), is(ChannelEndpointStatus.ACTIVE));
@@ -188,8 +189,8 @@ public class ChannelEndpointStatusTest
 
         while (publicationA.channelStatus() == ChannelEndpointStatus.INITIALIZING)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         assertThat(publicationA.channelStatus(), is(ChannelEndpointStatus.ACTIVE));
@@ -219,8 +220,8 @@ public class ChannelEndpointStatusTest
 
         while (subscriptionA.channelStatus() == ChannelEndpointStatus.INITIALIZING)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         final Subscription subscriptionB = clientB.addSubscription(URI_NO_CONFLICT, STREAM_ID);
@@ -229,8 +230,8 @@ public class ChannelEndpointStatusTest
         while (subscriptionB.channelStatus() == ChannelEndpointStatus.INITIALIZING ||
             subscriptionC.channelStatus() == ChannelEndpointStatus.INITIALIZING)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         verify(errorHandlerClientC, timeout(5000)).onError(any(ChannelEndpointException.class));

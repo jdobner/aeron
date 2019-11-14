@@ -4,7 +4,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *  https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,7 +30,7 @@ import io.aeron.logbuffer.FrameDescriptor;
 import io.aeron.logbuffer.LogBufferDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
 import org.agrona.CloseHelper;
-import org.agrona.IoUtil;
+import org.agrona.SystemUtil;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.*;
 import org.junit.rules.TestWatcher;
@@ -102,7 +102,7 @@ public class ArchiveRecordingLoadTest
             new Archive.Context()
                 .fileSyncLevel(0)
                 .deleteArchiveOnStart(true)
-                .archiveDir(new File(IoUtil.tmpDirName(), "archive-test"))
+                .archiveDir(new File(SystemUtil.tmpDirName(), "archive-test"))
                 .threadingMode(ArchiveThreadingMode.SHARED)
                 .errorCounter(driver.context().systemCounters().get(SystemCounterDescriptor.ERRORS))
                 .errorHandler(driver.context().errorHandler()));
@@ -316,7 +316,7 @@ public class ArchiveRecordingLoadTest
         while (publication.offer(buffer, 0, length) < 0)
         {
             LockSupport.parkNanos(1000);
-            if (System.nanoTime() > deadlineNs)
+            if ((deadlineNs - System.nanoTime()) < 0)
             {
                 fail("Offer has timed out");
             }

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,8 +17,9 @@
 #ifndef AERON_UDP_CHANNEL_H
 #define AERON_UDP_CHANNEL_H
 
-#include <netinet/in.h>
+#include "aeron_socket.h"
 #include "uri/aeron_uri.h"
+#include "util/aeron_netutil.h"
 
 typedef struct aeron_udp_channel_stct
 {
@@ -29,6 +30,7 @@ typedef struct aeron_udp_channel_stct
     struct sockaddr_storage local_data;
     struct sockaddr_storage remote_control;
     struct sockaddr_storage local_control;
+    int64_t tag_id;
     unsigned int interface_index;
     size_t uri_length;
     size_t canonical_length;
@@ -38,7 +40,14 @@ typedef struct aeron_udp_channel_stct
 }
 aeron_udp_channel_t;
 
-int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channel_t **channel);
+int aeron_udp_channel_parse(size_t uri_length, const char *uri, aeron_udp_channel_t **channel);
+
 void aeron_udp_channel_delete(aeron_udp_channel_t *channel);
+
+inline bool aeron_udp_channel_is_wildcard(aeron_udp_channel_t *channel)
+{
+    return aeron_is_wildcard_addr(&channel->remote_data) && aeron_is_wildcard_port(&channel->remote_data) &&
+        aeron_is_wildcard_addr(&channel->local_data) && aeron_is_wildcard_port(&channel->local_data);
+}
 
 #endif //AERON_UDP_CHANNEL_H

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,23 +18,26 @@ package io.aeron.archive;
 import io.aeron.archive.codecs.mark.MarkFileHeaderDecoder;
 import io.aeron.archive.codecs.mark.MarkFileHeaderEncoder;
 import io.aeron.archive.codecs.mark.VarAsciiEncodingEncoder;
-import org.agrona.BitUtil;
-import org.agrona.CloseHelper;
-import org.agrona.MarkFile;
-import org.agrona.SystemUtil;
+import org.agrona.*;
 import org.agrona.concurrent.EpochClock;
 import org.agrona.concurrent.UnsafeBuffer;
 
 import java.io.File;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 
 /**
  * Used to mark the presence of a running {@link Archive} in a directory to guard it.
  */
 public class ArchiveMarkFile implements AutoCloseable
 {
-    public static final String FILENAME = "archive-mark.dat";
+    public static final int MAJOR_VERSION = 2;
+    public static final int MINOR_VERSION = 0;
+    public static final int PATCH_VERSION = 0;
+    public static final int SEMANTIC_VERSION = SemanticVersion.compose(MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
+
     public static final int ALIGNMENT = 1024;
+    public static final String FILENAME = "archive-mark.dat";
 
     private final MarkFileHeaderDecoder headerDecoder = new MarkFileHeaderDecoder();
     private final MarkFileHeaderEncoder headerEncoder = new MarkFileHeaderEncoder();
@@ -56,7 +59,7 @@ public class ArchiveMarkFile implements AutoCloseable
         final EpochClock epochClock,
         final long timeoutMs)
     {
-        this.markFile = new MarkFile(
+        markFile = new MarkFile(
             file,
             file.exists(),
             MarkFileHeaderDecoder.versionEncodingOffset(),
@@ -66,15 +69,15 @@ public class ArchiveMarkFile implements AutoCloseable
             epochClock,
             (version) ->
             {
-                if (version != MarkFileHeaderDecoder.SCHEMA_VERSION)
+                if (SemanticVersion.major(version) != MAJOR_VERSION)
                 {
-                    throw new IllegalArgumentException("mark file version " + version +
-                        " does not match software:" + MarkFileHeaderDecoder.SCHEMA_VERSION);
+                    throw new IllegalArgumentException("mark file major version " + SemanticVersion.major(version) +
+                        " does not match software:" + MAJOR_VERSION);
                 }
             },
             null);
 
-        this.buffer = markFile.buffer();
+        buffer = markFile.buffer();
 
         headerEncoder.wrap(buffer, 0);
         headerDecoder.wrap(buffer, 0, MarkFileHeaderDecoder.BLOCK_LENGTH, MarkFileHeaderDecoder.SCHEMA_VERSION);
@@ -89,6 +92,30 @@ public class ArchiveMarkFile implements AutoCloseable
         final long timeoutMs,
         final Consumer<String> logger)
     {
+        this(
+            directory,
+            filename,
+            epochClock,
+            timeoutMs,
+            (version) ->
+            {
+                if (SemanticVersion.major(version) != MAJOR_VERSION)
+                {
+                    throw new IllegalArgumentException("mark file major version " + SemanticVersion.major(version) +
+                        " does not match software:" + MAJOR_VERSION);
+                }
+            },
+            logger);
+    }
+
+    public ArchiveMarkFile(
+        final File directory,
+        final String filename,
+        final EpochClock epochClock,
+        final long timeoutMs,
+        final IntConsumer versionCheck,
+        final Consumer<String> logger)
+    {
         markFile = new MarkFile(
             directory,
             filename,
@@ -96,18 +123,12 @@ public class ArchiveMarkFile implements AutoCloseable
             MarkFileHeaderDecoder.activityTimestampEncodingOffset(),
             timeoutMs,
             epochClock,
-            (version) ->
-            {
-                if (version != MarkFileHeaderDecoder.SCHEMA_VERSION)
-                {
-                    throw new IllegalArgumentException("mark file version " + version +
-                        " does not match software:" + MarkFileHeaderDecoder.SCHEMA_VERSION);
-                }
-            },
+            versionCheck,
             logger);
 
-        this.buffer = markFile.buffer();
+        buffer = markFile.buffer();
 
+        headerEncoder.wrap(buffer, 0);
         headerDecoder.wrap(buffer, 0, MarkFileHeaderDecoder.BLOCK_LENGTH, MarkFileHeaderDecoder.SCHEMA_VERSION);
     }
 
@@ -118,7 +139,7 @@ public class ArchiveMarkFile implements AutoCloseable
 
     public void signalReady()
     {
-        markFile.signalReady(MarkFileHeaderEncoder.SCHEMA_VERSION);
+        markFile.signalReady(SEMANTIC_VERSION);
     }
 
     public void updateActivityTimestamp(final long nowMs)

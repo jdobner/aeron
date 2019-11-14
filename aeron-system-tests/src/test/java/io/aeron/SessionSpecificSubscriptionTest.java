@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -60,6 +60,7 @@ public class SessionSpecificSubscriptionTest
 
     private final MediaDriver driver = MediaDriver.launch(new MediaDriver.Context()
         .errorHandler(Throwable::printStackTrace)
+        .dirDeleteOnShutdown(true)
         .publicationTermBufferLength(LogBufferDescriptor.TERM_MIN_LENGTH)
         .threadingMode(ThreadingMode.SHARED));
 
@@ -70,7 +71,6 @@ public class SessionSpecificSubscriptionTest
     {
         CloseHelper.close(aeron);
         CloseHelper.close(driver);
-        driver.context().deleteAeronDirectory();
     }
 
     @Test(timeout = 10_000)
@@ -86,8 +86,8 @@ public class SessionSpecificSubscriptionTest
                 subscriptionTwo.imageCount() != 1 ||
                 subscriptionWildcard.imageCount() != 2)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             for (int i = 0; i < EXPECTED_NUMBER_OF_MESSAGES; i++)
@@ -132,8 +132,8 @@ public class SessionSpecificSubscriptionTest
         {
             while (!publication.isConnected())
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             assertThat(subscription.imageCount(), is(1));
@@ -160,8 +160,8 @@ public class SessionSpecificSubscriptionTest
     {
         while (publication.offer(buffer, 0, MESSAGE_LENGTH) < 0L)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
     }
 }

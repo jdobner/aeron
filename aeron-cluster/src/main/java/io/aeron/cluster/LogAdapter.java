@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,19 +17,17 @@ package io.aeron.cluster;
 
 import io.aeron.Image;
 import io.aeron.ImageControlledFragmentAssembler;
+import io.aeron.cluster.client.ClusterClock;
+import io.aeron.cluster.client.ClusterException;
 import io.aeron.cluster.codecs.*;
 import io.aeron.logbuffer.ControlledFragmentHandler;
 import io.aeron.logbuffer.Header;
 import org.agrona.DirectBuffer;
 
+import static io.aeron.cluster.client.AeronCluster.SESSION_HEADER_LENGTH;
+
 final class LogAdapter implements ControlledFragmentHandler, AutoCloseable
 {
-    /**
-     * Length of the session header that will precede application protocol message.
-     */
-    public static final int SESSION_HEADER_LENGTH =
-        MessageHeaderDecoder.ENCODED_LENGTH + SessionHeaderDecoder.BLOCK_LENGTH;
-
     private static final int FRAGMENT_LIMIT = 100;
 
     private final ImageControlledFragmentAssembler fragmentAssembler = new ImageControlledFragmentAssembler(this);
@@ -38,7 +36,7 @@ final class LogAdapter implements ControlledFragmentHandler, AutoCloseable
     private final MessageHeaderDecoder messageHeaderDecoder = new MessageHeaderDecoder();
     private final SessionOpenEventDecoder sessionOpenEventDecoder = new SessionOpenEventDecoder();
     private final SessionCloseEventDecoder sessionCloseEventDecoder = new SessionCloseEventDecoder();
-    private final SessionHeaderDecoder sessionHeaderDecoder = new SessionHeaderDecoder();
+    private final SessionMessageHeaderDecoder sessionHeaderDecoder = new SessionMessageHeaderDecoder();
     private final TimerEventDecoder timerEventDecoder = new TimerEventDecoder();
     private final ClusterActionRequestDecoder clusterActionRequestDecoder = new ClusterActionRequestDecoder();
     private final NewLeadershipTermEventDecoder newLeadershipTermEventDecoder = new NewLeadershipTermEventDecoder();
@@ -87,9 +85,15 @@ final class LogAdapter implements ControlledFragmentHandler, AutoCloseable
     public Action onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
         messageHeaderDecoder.wrap(buffer, offset);
-        final int templateId = messageHeaderDecoder.templateId();
 
-        if (templateId == SessionHeaderDecoder.TEMPLATE_ID)
+        final int schemaId = messageHeaderDecoder.schemaId();
+        if (schemaId != MessageHeaderDecoder.SCHEMA_ID)
+        {
+            throw new ClusterException("expected schemaId=" + MessageHeaderDecoder.SCHEMA_ID + ", actual=" + schemaId);
+        }
+
+        final int templateId = messageHeaderDecoder.templateId();
+        if (templateId == SessionMessageHeaderDecoder.TEMPLATE_ID)
         {
             sessionHeaderDecoder.wrap(
                 buffer,
@@ -162,8 +166,11 @@ final class LogAdapter implements ControlledFragmentHandler, AutoCloseable
                     newLeadershipTermEventDecoder.leadershipTermId(),
                     newLeadershipTermEventDecoder.logPosition(),
                     newLeadershipTermEventDecoder.timestamp(),
+                    newLeadershipTermEventDecoder.termBaseLogPosition(),
                     newLeadershipTermEventDecoder.leaderMemberId(),
-                    newLeadershipTermEventDecoder.logSessionId());
+                    newLeadershipTermEventDecoder.logSessionId(),
+                    ClusterClock.map(newLeadershipTermEventDecoder.timeUnit()),
+                    newLeadershipTermEventDecoder.appVersion());
                 break;
 
             case MembershipChangeEventDecoder.TEMPLATE_ID:
@@ -173,7 +180,7 @@ final class LogAdapter implements ControlledFragmentHandler, AutoCloseable
                     messageHeaderDecoder.blockLength(),
                     messageHeaderDecoder.version());
 
-                consensusModuleAgent.onMembershipClusterChange(
+                consensusModuleAgent.onMembershipChange(
                     membershipChangeEventDecoder.leadershipTermId(),
                     membershipChangeEventDecoder.logPosition(),
                     membershipChangeEventDecoder.timestamp(),

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,10 +18,59 @@ package io.aeron.driver;
 import java.net.InetSocketAddress;
 
 /**
- * Strategy for applying congestion control to determine the receiverWindowLength of the Status Messages
+ * Strategy for applying congestion control to determine the receiver window length of the Status Messages.
  */
 public interface CongestionControl extends AutoCloseable
 {
+    int FORCE_STATUS_MESSAGE_BIT = 0x1;
+
+    /**
+     * Pack values into a long so they can be returned on the stack without allocation.
+     *
+     * @param receiverWindowLength to go in the lower bits.
+     * @param forceStatusMessage   to go in the higher bits.
+     * @return the packed value.
+     */
+    static long packOutcome(final int receiverWindowLength, final boolean forceStatusMessage)
+    {
+        final int flags = forceStatusMessage ? FORCE_STATUS_MESSAGE_BIT : 0x0;
+
+        return ((long)flags << 32) | receiverWindowLength;
+    }
+
+    /**
+     * Extract the receiver window length from the packed value.
+     *
+     * @param outcome as the packed value.
+     * @return the receiver window length.
+     */
+    static int receiverWindowLength(final long outcome)
+    {
+        return (int)outcome;
+    }
+
+    /**
+     * Extract the boolean value for if a status message should be forced from the packed value.
+     *
+     * @param outcome which is packed containing the force status message flag.
+     * @return true if the force status message bit has been set.
+     */
+    static boolean shouldForceStatusMessage(final long outcome)
+    {
+        return ((int)(outcome >>> 32) & FORCE_STATUS_MESSAGE_BIT) == FORCE_STATUS_MESSAGE_BIT;
+    }
+
+    /**
+     * Threshold increment in a window after which a status message should be scheduled.
+     *
+     * @param windowLength to calculate the threshold from.
+     * @return the threshold in the window after which a status message should be scheduled.
+     */
+    static int threshold(final int windowLength)
+    {
+        return windowLength >> 2;
+    }
+
     /**
      * Polled by {@link Receiver} to determine when to initiate an RTT measurement to a Sender.
      *
@@ -50,10 +99,10 @@ public interface CongestionControl extends AutoCloseable
      * Called by {@link DriverConductor} upon execution of {@link PublicationImage#trackRebuild(long, long)} to
      * pass on current status.
      * <p>
-     * The return value must be packed using {@link CongestionControlUtil#packOutcome(int, boolean)}.
+     * The return value must be packed using {@link CongestionControl#packOutcome(int, boolean)}.
      *
-     * @param nowNs                   in nanoseconds
-     * @param newConsumptionPosition  of the Subscribers
+     * @param nowNs                   current time
+     * @param newConsumptionPosition  of the subscribers
      * @param lastSmPosition          of the image
      * @param hwmPosition             of the image
      * @param startingRebuildPosition of the rebuild

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -132,7 +132,18 @@ public class RecordingDescriptorPoller implements ControlledFragmentHandler
 
     public Action onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
+        if (isDispatchComplete)
+        {
+            return Action.ABORT;
+        }
+
         messageHeaderDecoder.wrap(buffer, offset);
+
+        final int schemaId = messageHeaderDecoder.schemaId();
+        if (schemaId != MessageHeaderDecoder.SCHEMA_ID)
+        {
+            throw new ArchiveException("expected schemaId=" + MessageHeaderDecoder.SCHEMA_ID + ", actual=" + schemaId);
+        }
 
         final int templateId = messageHeaderDecoder.templateId();
         switch (templateId)
@@ -210,9 +221,6 @@ public class RecordingDescriptorPoller implements ControlledFragmentHandler
                     }
                 }
                 break;
-
-            default:
-                throw new ArchiveException("unknown templateId: " + templateId);
         }
 
         return Action.CONTINUE;

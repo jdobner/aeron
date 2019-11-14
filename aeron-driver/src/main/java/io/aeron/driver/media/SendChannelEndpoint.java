@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,8 +15,9 @@
  */
 package io.aeron.driver.media;
 
-import io.aeron.CommonContext;
+import io.aeron.ErrorCode;
 import io.aeron.driver.*;
+import io.aeron.exceptions.ControlProtocolException;
 import io.aeron.status.ChannelEndpointStatus;
 import io.aeron.protocol.NakFlyweight;
 import io.aeron.protocol.RttMeasurementFlyweight;
@@ -57,26 +58,21 @@ public class SendChannelEndpoint extends UdpChannelTransport
             udpChannel,
             udpChannel.remoteControl(),
             udpChannel.localControl(),
-            !udpChannel.hasExplicitControl() ? udpChannel.remoteData() : null,
-            context.errorLog(),
-            context.systemCounters().get(INVALID_PACKETS));
+            udpChannel.hasExplicitControl() || udpChannel.isManualControlMode() ? null : udpChannel.remoteData(),
+            context);
 
         nakMessagesReceived = context.systemCounters().get(NAK_MESSAGES_RECEIVED);
         statusMessagesReceived = context.systemCounters().get(STATUS_MESSAGES_RECEIVED);
         this.statusIndicator = statusIndicator;
 
         MultiDestination multiDestination = null;
-        if (udpChannel.hasExplicitControl())
+        if (udpChannel.isManualControlMode())
         {
-            final String mode = udpChannel.channelUri().get(CommonContext.MDC_CONTROL_MODE_PARAM_NAME);
-            if (CommonContext.MDC_CONTROL_MODE_MANUAL.equals(mode))
-            {
-                multiDestination = new ManualMultiDestination();
-            }
-            else if (null == mode || CommonContext.MDC_CONTROL_MODE_DYNAMIC.equals(mode))
-            {
-                multiDestination = new DynamicMultiDestination(context.cachedNanoClock(), DESTINATION_TIMEOUT);
-            }
+            multiDestination = new ManualMultiDestination();
+        }
+        else if (udpChannel.isDynamicControlMode() || udpChannel.hasExplicitControl())
+        {
+            multiDestination = new DynamicMultiDestination(context.cachedNanoClock(), DESTINATION_TIMEOUT);
         }
 
         this.multiDestination = multiDestination;
@@ -131,6 +127,7 @@ public class SendChannelEndpoint extends UdpChannelTransport
                 "channel cannot be registered unless INITALIZING: status=" + status(currentStatus));
         }
 
+        statusIndicator.updateLabel(statusIndicator.label() + " " + bindAddressAndPort());
         statusIndicator.setOrdered(ChannelEndpointStatus.ACTIVE);
     }
 
@@ -284,7 +281,7 @@ public class SendChannelEndpoint extends UdpChannelTransport
     {
         if (null == multiDestination || !multiDestination.isManualControlMode())
         {
-            throw new IllegalArgumentException("control channel does not allow manual control");
+            throw new ControlProtocolException(ErrorCode.INVALID_CHANNEL, "channel does not allow manual control");
         }
     }
 

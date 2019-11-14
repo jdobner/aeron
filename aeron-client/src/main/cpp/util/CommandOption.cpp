@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,7 +32,7 @@ CommandOption::CommandOption(char optionChar, size_t minParams, size_t maxParams
     m_optionChar(optionChar),
     m_minParams(minParams),
     m_maxParams(maxParams),
-    m_helpText(helpText),
+    m_helpText(std::move(helpText)),
     m_isPresent(false)
 {
 }

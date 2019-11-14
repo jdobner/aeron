@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -103,9 +103,9 @@ public class RttMeasurementFlyweight extends HeaderFlyweight
         return getLong(ECHO_TIMESTAMP_FIELD_OFFSET, LITTLE_ENDIAN);
     }
 
-    public RttMeasurementFlyweight echoTimestampNs(final long timestamp)
+    public RttMeasurementFlyweight echoTimestampNs(final long timestampNs)
     {
-        putLong(ECHO_TIMESTAMP_FIELD_OFFSET, timestamp, LITTLE_ENDIAN);
+        putLong(ECHO_TIMESTAMP_FIELD_OFFSET, timestampNs, LITTLE_ENDIAN);
 
         return this;
     }
@@ -136,21 +136,16 @@ public class RttMeasurementFlyweight extends HeaderFlyweight
 
     public String toString()
     {
-        final StringBuilder sb = new StringBuilder();
-        final String formattedFlags = String.format("%1$8s", Integer.toBinaryString(flags())).replace(' ', '0');
-
-        sb.append("RTT Measure Message{")
-            .append("frame_length=").append(frameLength())
-            .append(" version=").append(version())
-            .append(" flags=").append(formattedFlags)
-            .append(" type=").append(headerType())
-            .append(" session_id=").append(sessionId())
-            .append(" stream_id=").append(streamId())
-            .append(" echo_timestamp=").append(echoTimestampNs())
-            .append(" reception_delta=").append(receptionDelta())
-            .append(" receiver_id=").append(receiverId())
-            .append("}");
-
-        return sb.toString();
+        return "RTTM{" +
+            "frame-length=" + frameLength() +
+            " version=" + version() +
+            " flags=" + String.valueOf(flagsToChars(flags())) +
+            " type=" + headerType() +
+            " session-id=" + sessionId() +
+            " stream-id=" + streamId() +
+            " echo-timestamp=" + echoTimestampNs() +
+            " reception-delta=" + receptionDelta() +
+            " receiver-id=" + receiverId() +
+            "}";
     }
 }

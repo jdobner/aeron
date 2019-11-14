@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,41 +19,56 @@ import io.aeron.Aeron;
 import io.aeron.CncFileDescriptor;
 import io.aeron.archive.client.AeronArchive;
 import io.aeron.cluster.codecs.BooleanType;
+import io.aeron.cluster.codecs.mark.ClusterComponentType;
 import io.aeron.cluster.service.ClusterMarkFile;
 import io.aeron.cluster.service.ConsensusModuleProxy;
-import io.aeron.exceptions.AeronException;
 import org.agrona.DirectBuffer;
 import org.agrona.IoUtil;
+import org.agrona.SystemUtil;
 import org.agrona.collections.ArrayUtil;
+import org.agrona.collections.MutableBoolean;
 import org.agrona.collections.MutableLong;
 import org.agrona.concurrent.AtomicBuffer;
+import org.agrona.concurrent.EpochClock;
+import org.agrona.concurrent.SystemEpochClock;
+import org.agrona.concurrent.status.AtomicCounter;
+import org.agrona.concurrent.status.CountersReader;
 
 import java.io.File;
 import java.io.PrintStream;
 import java.nio.MappedByteBuffer;
 import java.util.Date;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import static io.aeron.Aeron.NULL_VALUE;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static org.agrona.SystemUtil.getDurationInNanos;
 
 /**
  * Tool for investigating the state of a cluster node.
  * <pre>
  * Usage: ClusterTool &#60;cluster-dir&#62; &#60;command&#62; [options]
- *          describe: prints out all descriptors in the file.
- *               pid: prints PID of cluster component.
- *     recovery-plan: [service count] prints recovery plan of cluster component.
- *     recording-log: prints recording log of cluster component.
- *            errors: prints Aeron and cluster component error logs.
- *      list-members: print leader memberId, active members list, and passive members list
- *     remove-member: [memberId] requests node (if leader) to remove member specified in memberId
- *    remove-passive: [memberId] requests node (if leader) to remove passive member specified in memberId
+ *                   describe: prints out all descriptors in the file.
+ *                        pid: prints PID of cluster component.
+ *              recovery-plan: [service count] prints recovery plan of cluster component.
+ *              recording-log: prints recording log of cluster component.
+ *                     errors: prints Aeron and cluster component error logs.
+ *               list-members: print leader memberId, active members list, and passive members list.
+ *              remove-member: [memberId] requests removal of a member specified in memberId.
+ *             remove-passive: [memberId] requests removal of passive member specified in memberId.
+ *               backup-query: [delay] schedules (or displays) time of next backup query for cluster backup.
+ *  tombstone-latest-snapshot: Mark the latest snapshot as a tombstone so previous is loaded..
  * </pre>
  */
 public class ClusterTool
 {
-    private static final long TIMEOUT_MS = Long.getLong("aeron.ClusterTool.timeoutMs", 0);
+    public static final String AERON_CLUSTER_TOOL_TIMEOUT_PROP_NAME = "aeron.cluster.tool.timeout";
+    public static final String AERON_CLUSTER_TOOL_DELAY_PROP_NAME = "aeron.cluster.tool.delay";
+
+    private static final long TIMEOUT_MS =
+        NANOSECONDS.toMillis(getDurationInNanos(AERON_CLUSTER_TOOL_TIMEOUT_PROP_NAME, 0));
 
     public static void main(final String[] args)
     {
@@ -119,7 +134,39 @@ public class ClusterTool
                 }
                 removeMember(System.out, clusterDir, Integer.parseInt(args[2]), true);
                 break;
+
+            case "backup-query":
+                if (args.length < 3)
+                {
+                    printNextBackupQuery(System.out, clusterDir);
+                }
+                else
+                {
+                    nextBackupQuery(
+                        System.out,
+                        clusterDir,
+                        NANOSECONDS.toMillis(SystemUtil.parseDuration(AERON_CLUSTER_TOOL_DELAY_PROP_NAME, args[2])));
+                }
+                break;
+
+            case "tombstone-latest-snapshot":
+                tombstoneLatestSnapshot(System.out, clusterDir);
+                break;
         }
+    }
+
+    /**
+     * Snapshot of the current membership of a cluster.
+     */
+    public static class ClusterMembership
+    {
+        long currentTimeNs = NULL_VALUE;
+        int leaderMemberId = NULL_VALUE;
+        int memberId = NULL_VALUE;
+        String activeMembersStr = null;
+        String passiveMembersStr = null;
+        List<ClusterMember> activeMembers = null;
+        List<ClusterMember> passiveMembers = null;
     }
 
     public static void describe(final PrintStream out, final File clusterDir)
@@ -198,19 +245,21 @@ public class ClusterTool
         {
             try (ClusterMarkFile markFile = openMarkFile(clusterDir, System.out::println))
             {
-                final ClusterMembersInfo clusterMembersInfo = new ClusterMembersInfo();
+                final ClusterMembership clusterMembership = new ClusterMembership();
                 final long timeoutMs = Math.max(TimeUnit.SECONDS.toMillis(1), TIMEOUT_MS);
 
-                if (queryClusterMembers(markFile, clusterMembersInfo, timeoutMs))
+                if (queryClusterMembers(markFile, clusterMembership, timeoutMs))
                 {
-                    out.format("leaderMemberId=%d, activeMembers=%s, passiveMembers=%s%n",
-                        clusterMembersInfo.leaderMemberId,
-                        clusterMembersInfo.activeMembers,
-                        clusterMembersInfo.passiveMembers);
+                    out.println(
+                        "currentTimeNs=" + clusterMembership.currentTimeNs +
+                        ", leaderMemberId=" + clusterMembership.leaderMemberId +
+                        ", memberId=" + clusterMembership.memberId +
+                        ", activeMembers=" + clusterMembership.activeMembers +
+                        ", passiveMembers=" + clusterMembership.passiveMembers);
                 }
                 else
                 {
-                    out.format("timeout waiting for response from node");
+                    out.println("timeout waiting for response from node");
                 }
             }
         }
@@ -230,6 +279,56 @@ public class ClusterTool
                 if (!removeMember(markFile, memberId, isPassive))
                 {
                     out.println("could not send remove member request");
+                }
+            }
+        }
+        else
+        {
+            out.println(ClusterMarkFile.FILENAME + " does not exist.");
+        }
+    }
+
+    public static void printNextBackupQuery(final PrintStream out, final File clusterDir)
+    {
+        if (markFileExists(clusterDir) || TIMEOUT_MS > 0)
+        {
+            try (ClusterMarkFile markFile = openMarkFile(clusterDir, System.out::println))
+            {
+                if (markFile.decoder().componentType() != ClusterComponentType.BACKUP)
+                {
+                    out.println("not a cluster backup node");
+                }
+                else
+                {
+                    out.format("%2$tF %1$tH:%1$tM:%1$tS next: %2$tF %2$tH:%2$tM:%2$tS%n",
+                        new Date(),
+                        new Date(nextBackupQueryDeadlineMs(markFile)));
+                }
+            }
+        }
+        else
+        {
+            out.println(ClusterMarkFile.FILENAME + " does not exist.");
+        }
+    }
+
+    public static void nextBackupQuery(final PrintStream out, final File clusterDir, final long delayMs)
+    {
+        if (markFileExists(clusterDir) || TIMEOUT_MS > 0)
+        {
+            try (ClusterMarkFile markFile = openMarkFile(clusterDir, System.out::println))
+            {
+                if (markFile.decoder().componentType() != ClusterComponentType.BACKUP)
+                {
+                    out.println("not a cluster backup node");
+                }
+                else
+                {
+                    final EpochClock epochClock = new SystemEpochClock();
+                    nextBackupQueryDeadlineMs(markFile, epochClock.time() + delayMs);
+                    out.format("%2$tF %1$tH:%1$tM:%1$tS setting next: %2$tF %2$tH:%2$tM:%2$tS%n",
+                        new Date(),
+                        new Date(nextBackupQueryDeadlineMs(markFile)));
                 }
             }
         }
@@ -266,21 +365,14 @@ public class ClusterTool
         return markFile.exists();
     }
 
-    public static class ClusterMembersInfo
-    {
-        int leaderMemberId = NULL_VALUE;
-        String activeMembers = null;
-        String passiveMembers = null;
-    }
-
     public static boolean listMembers(
-        final ClusterMembersInfo clusterMembersInfo, final File clusterDir, final long timeoutMs)
+        final ClusterMembership clusterMembership, final File clusterDir, final long timeoutMs)
     {
         if (markFileExists(clusterDir) || TIMEOUT_MS > 0)
         {
             try (ClusterMarkFile markFile = openMarkFile(clusterDir, null))
             {
-                return queryClusterMembers(markFile, clusterMembersInfo, timeoutMs);
+                return queryClusterMembers(markFile, clusterMembership, timeoutMs);
             }
         }
 
@@ -288,28 +380,59 @@ public class ClusterTool
     }
 
     public static boolean queryClusterMembers(
-        final ClusterMarkFile markFile,
-        final ClusterMembersInfo clusterMembersInfo,
-        final long timeoutMs)
+        final ClusterMarkFile markFile, final ClusterMembership clusterMembership, final long timeoutMs)
     {
         final String aeronDirectoryName = markFile.decoder().aeronDirectory();
-        final String archiveChannel = markFile.decoder().archiveChannel();
+        markFile.decoder().archiveChannel();
         final String channel = markFile.decoder().serviceControlChannel();
         final int toServiceStreamId = markFile.decoder().serviceStreamId();
         final int toConsensusModuleStreamId = markFile.decoder().consensusModuleStreamId();
 
         final MutableLong id = new MutableLong(NULL_VALUE);
-        final MemberServiceAdapter.MemberServiceHandler handler =
-            (correlationId, leaderMemberId, activeMembers, passiveMembers) ->
+        final MemberServiceAdapter.MemberServiceHandler handler = new MemberServiceAdapter.MemberServiceHandler()
+        {
+            public void onClusterMembersResponse(
+                final long correlationId,
+                final int leaderMemberId,
+                final String activeMembers,
+                final String passiveMembers)
             {
                 if (correlationId == id.longValue())
                 {
-                    clusterMembersInfo.leaderMemberId = leaderMemberId;
-                    clusterMembersInfo.activeMembers = activeMembers;
-                    clusterMembersInfo.passiveMembers = passiveMembers;
+                    clusterMembership.leaderMemberId = leaderMemberId;
+                    clusterMembership.activeMembersStr = activeMembers;
+                    clusterMembership.passiveMembersStr = passiveMembers;
                     id.set(NULL_VALUE);
                 }
-            };
+            }
+
+            public void onClusterMembersExtendedResponse(
+                final long correlationId,
+                final long currentTimeNs,
+                final int leaderMemberId,
+                final int memberId,
+                final List<ClusterMember> activeMembers,
+                final List<ClusterMember> passiveMembers)
+            {
+                if (correlationId == id.longValue())
+                {
+                    clusterMembership.currentTimeNs = currentTimeNs;
+                    clusterMembership.leaderMemberId = leaderMemberId;
+                    clusterMembership.memberId = memberId;
+                    clusterMembership.activeMembers = activeMembers;
+                    clusterMembership.passiveMembers = passiveMembers;
+
+                    ClusterMember[] activeMemberArray = new ClusterMember[activeMembers.size()];
+                    ClusterMember[] passiveMemberArray = new ClusterMember[passiveMembers.size()];
+                    activeMemberArray = activeMembers.toArray(activeMemberArray);
+                    passiveMemberArray = passiveMembers.toArray(passiveMemberArray);
+
+                    clusterMembership.activeMembersStr = ClusterMember.encodeAsString(activeMemberArray);
+                    clusterMembership.passiveMembersStr = ClusterMember.encodeAsString(passiveMemberArray);
+                    id.set(NULL_VALUE);
+                }
+            }
+        };
 
         try (Aeron aeron = Aeron.connect(new Aeron.Context().aeronDirectoryName(aeronDirectoryName));
             ConsensusModuleProxy consensusModuleProxy = new ConsensusModuleProxy(
@@ -352,15 +475,11 @@ public class ClusterTool
         return false;
     }
 
-    public static boolean removeMember(
-        final ClusterMarkFile markFile,
-        final int memberId,
-        final boolean isPassive)
+    public static boolean removeMember(final ClusterMarkFile markFile, final int memberId, final boolean isPassive)
     {
         final String aeronDirectoryName = markFile.decoder().aeronDirectory();
-        final String archiveChannel = markFile.decoder().archiveChannel();
+        markFile.decoder().archiveChannel();
         final String channel = markFile.decoder().serviceControlChannel();
-        final int toServiceStreamId = markFile.decoder().serviceStreamId();
         final int toConsensusModuleStreamId = markFile.decoder().consensusModuleStreamId();
 
         try (Aeron aeron = Aeron.connect(new Aeron.Context().aeronDirectoryName(aeronDirectoryName));
@@ -377,6 +496,86 @@ public class ClusterTool
         return false;
     }
 
+    public static long nextBackupQueryDeadlineMs(final File clusterDir)
+    {
+        if (markFileExists(clusterDir) || TIMEOUT_MS > 0)
+        {
+            try (ClusterMarkFile markFile = openMarkFile(clusterDir, null))
+            {
+                return nextBackupQueryDeadlineMs(markFile);
+            }
+        }
+
+        return NULL_VALUE;
+    }
+
+    public static long nextBackupQueryDeadlineMs(final ClusterMarkFile markFile)
+    {
+        final String aeronDirectoryName = markFile.decoder().aeronDirectory();
+        final MutableLong nextQueryMs = new MutableLong(NULL_VALUE);
+
+        try (Aeron aeron = Aeron.connect(new Aeron.Context().aeronDirectoryName(aeronDirectoryName)))
+        {
+            aeron.countersReader().forEach((counterId, typeId, keyBuffer, label) ->
+            {
+                if (ClusterBackup.QUERY_DEADLINE_TYPE_ID == typeId)
+                {
+                    nextQueryMs.value = aeron.countersReader().getCounterValue(counterId);
+                }
+            });
+        }
+
+        return nextQueryMs.value;
+    }
+
+    public static boolean nextBackupQueryDeadlineMs(final File clusterDir, final long timeMs)
+    {
+        if (markFileExists(clusterDir) || TIMEOUT_MS > 0)
+        {
+            try (ClusterMarkFile markFile = openMarkFile(clusterDir, null))
+            {
+                return nextBackupQueryDeadlineMs(markFile, timeMs);
+            }
+        }
+
+        return false;
+    }
+
+    public static boolean nextBackupQueryDeadlineMs(final ClusterMarkFile markFile, final long timeMs)
+    {
+        final String aeronDirectoryName = markFile.decoder().aeronDirectory();
+        final MutableBoolean result = new MutableBoolean(false);
+
+        try (Aeron aeron = Aeron.connect(new Aeron.Context().aeronDirectoryName(aeronDirectoryName)))
+        {
+            final CountersReader countersReader = aeron.countersReader();
+
+            countersReader.forEach((counterId, typeId, keyBuffer, label) ->
+            {
+                if (ClusterBackup.QUERY_DEADLINE_TYPE_ID == typeId)
+                {
+                    final AtomicCounter atomicCounter = new AtomicCounter(
+                        countersReader.valuesBuffer(), counterId, null);
+
+                    atomicCounter.setOrdered(timeMs);
+                    result.value = true;
+                }
+            });
+        }
+
+        return result.value;
+    }
+
+    public static boolean tombstoneLatestSnapshot(final PrintStream out, final File clusterDir)
+    {
+        try (RecordingLog recordingLog = new RecordingLog(clusterDir))
+        {
+            final boolean result = recordingLog.tombstoneLatestSnapshot();
+            out.println(" tombstone latest snapshot: " + result);
+            return result;
+        }
+    }
+
     private static ClusterMarkFile openMarkFile(final File clusterDir, final Consumer<String> logger)
     {
         return new ClusterMarkFile(clusterDir, ClusterMarkFile.FILENAME, System::currentTimeMillis, TIMEOUT_MS, logger);
@@ -387,7 +586,7 @@ public class ClusterTool
         String[] clusterMarkFileNames =
             clusterDir.list((dir, name) ->
                 name.startsWith(ClusterMarkFile.SERVICE_FILENAME_PREFIX) &&
-                name.endsWith(ClusterMarkFile.FILE_EXTENSION));
+                    name.endsWith(ClusterMarkFile.FILE_EXTENSION));
 
         if (null == clusterMarkFileNames)
         {
@@ -428,12 +627,7 @@ public class ClusterTool
         final DirectBuffer cncMetaDataBuffer = CncFileDescriptor.createMetaDataBuffer(cncByteBuffer);
         final int cncVersion = cncMetaDataBuffer.getInt(CncFileDescriptor.cncVersionOffset(0));
 
-        if (CncFileDescriptor.CNC_VERSION != cncVersion)
-        {
-            throw new AeronException(
-                "Aeron CnC version does not match: version=" + cncVersion +
-                    " required=" + CncFileDescriptor.CNC_VERSION);
-        }
+        CncFileDescriptor.checkVersion(cncVersion);
 
         final AtomicBuffer buffer = CncFileDescriptor.createErrorLogBuffer(cncByteBuffer, cncMetaDataBuffer);
         ClusterMarkFile.saveErrorLog(out, buffer);
@@ -442,10 +636,25 @@ public class ClusterTool
     private static void printHelp(final PrintStream out)
     {
         out.println("Usage: <cluster-dir> <command> [options]");
-        out.println("  describe: prints out all descriptors in the file.");
-        out.println("  pid: prints PID of cluster component.");
-        out.println("  recovery-plan: [service count] prints recovery plan of cluster component.");
-        out.println("  recording-log: prints recording log of cluster component.");
-        out.println("  errors: prints Aeron and cluster component error logs.");
+        out.println(
+            "                    describe: prints out all descriptors in the file.");
+        out.println(
+            "                        pid: prints PID of cluster component.");
+        out.println(
+            "              recovery-plan: [service count] prints recovery plan of cluster component.");
+        out.println(
+            "              recording-log: prints recording log of cluster component.");
+        out.println(
+            "                     errors: prints Aeron and cluster component error logs.");
+        out.println(
+            "               list-members: print leader memberId, active members list, and passive members list.");
+        out.println(
+            "              remove-member: [memberId] requests removal of a member specified in memberId.");
+        out.println(
+            "             remove-passive: [memberId] requests removal of passive member specified in memberId.");
+        out.println(
+            "               backup-query: [delay] display time of next backup query or set time of next backup query.");
+        out.println(
+            "  tombstone-latest-snapshot: Mark the latest snapshot as a tombstone so previous is loaded.");
     }
 }

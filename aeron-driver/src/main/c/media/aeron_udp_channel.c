@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,14 +16,19 @@
 
 #include <string.h>
 #include <errno.h>
-#include <netdb.h>
+#include <inttypes.h>
+#include <stdlib.h>
+#include "aeron_socket.h"
 #include <stdio.h>
+#include <uri/aeron_uri.h>
 #include "aeron_alloc.h"
 #include "util/aeron_strutil.h"
 #include "uri/aeron_uri.h"
 #include "util/aeron_netutil.h"
 #include "util/aeron_error.h"
 #include "media/aeron_udp_channel.h"
+#include "concurrent/aeron_atomic.h"
+#include "command/aeron_control_protocol.h"
 
 int aeron_ipv4_multicast_control_address(struct sockaddr_in *data_addr, struct sockaddr_in *control_addr)
 {
@@ -131,9 +136,16 @@ int aeron_find_unicast_interface(
     return 0;
 }
 
+static int32_t unique_canonical_form_value = 0;
+
 int aeron_uri_udp_canonicalise(
-    char *canonical_form, size_t length, struct sockaddr_storage *local_data, struct sockaddr_storage *remote_data)
+    char *canonical_form,
+    size_t length,
+    struct sockaddr_storage *local_data,
+    struct sockaddr_storage *remote_data,
+    bool make_unique)
 {
+    char unique_suffix[4 * sizeof(unique_canonical_form_value)] = "";
     char local_data_str[AERON_FORMAT_HEX_LENGTH(sizeof(struct sockaddr_in6))];
     char remote_data_str[AERON_FORMAT_HEX_LENGTH(sizeof(struct sockaddr_in6))];
     uint8_t *local_data_addr, *remote_data_addr;
@@ -175,11 +187,20 @@ int aeron_uri_udp_canonicalise(
     aeron_format_to_hex(local_data_str, sizeof(local_data_str), local_data_addr, local_data_length);
     aeron_format_to_hex(remote_data_str, sizeof(remote_data_str), remote_data_addr, remote_data_length);
 
+    if (make_unique)
+    {
+        int32_t result = 0;
+
+        AERON_GET_AND_ADD_INT32(result, unique_canonical_form_value, 1);
+        snprintf(unique_suffix, sizeof(unique_suffix) - 1, "-%" PRId32, result);
+    }
+
     return snprintf(
-        canonical_form, length, "UDP-%s-%d-%s-%d", local_data_str, local_data_port, remote_data_str, remote_data_port);
+        canonical_form, length, "UDP-%s-%d-%s-%d%s",
+        local_data_str, local_data_port, remote_data_str, remote_data_port, unique_suffix);
 }
 
-int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channel_t **channel)
+int aeron_udp_channel_parse(size_t uri_length, const char *uri, aeron_udp_channel_t **channel)
 {
     aeron_udp_channel_t *_channel = NULL;
     struct sockaddr_storage endpoint_addr, explicit_control_addr, interface_addr;
@@ -195,7 +216,7 @@ int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channe
         return -1;
     }
 
-    if (aeron_uri_parse(uri, &_channel->uri) < 0)
+    if (aeron_uri_parse(uri_length, uri, &_channel->uri) < 0)
     {
         goto error_cleanup;
     }
@@ -203,22 +224,29 @@ int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channe
     size_t copy_length = sizeof(_channel->original_uri) - 1;
     copy_length = uri_length < copy_length ? uri_length : copy_length;
 
-    strncpy(_channel->original_uri, uri, copy_length);
+    memcpy(_channel->original_uri, uri, copy_length);
     _channel->original_uri[copy_length] = '\0';
     _channel->uri_length = copy_length;
 
     _channel->explicit_control = false;
     _channel->multicast = false;
+    _channel->tag_id = AERON_URI_INVALID_TAG;
 
     if (_channel->uri.type != AERON_URI_UDP)
     {
-        aeron_set_err(EINVAL, "%s", "UDP channels must use UDP URIs");
+        aeron_set_err(-AERON_ERROR_CODE_INVALID_CHANNEL, "%s", "UDP channels must use UDP URIs");
         goto error_cleanup;
     }
 
-    if (NULL == _channel->uri.params.udp.endpoint_key && NULL == _channel->uri.params.udp.control_key)
+    bool has_no_distinguishing_characteristic =
+        NULL == _channel->uri.params.udp.endpoint_key &&
+        NULL == _channel->uri.params.udp.control_key &&
+        NULL == _channel->uri.params.udp.channel_tag_key;
+
+    if (has_no_distinguishing_characteristic && NULL == _channel->uri.params.udp.control_mode_key)
     {
-        aeron_set_err(EINVAL, "%s", "Aeron URIs for UDP must specify an endpoint address and/or a control address");
+        aeron_set_err(-AERON_ERROR_CODE_INVALID_CHANNEL, "%s",
+            "Aeron URIs for UDP must specify an endpoint address, control address, tag-id, or control-mode");
         goto error_cleanup;
     }
 
@@ -227,7 +255,7 @@ int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channe
         if (aeron_host_and_port_parse_and_resolve(_channel->uri.params.udp.endpoint_key, &endpoint_addr) < 0)
         {
             aeron_set_err(
-                aeron_errcode(),
+                -AERON_ERROR_CODE_INVALID_CHANNEL,
                 "could not resolve endpoint address=(%s): %s",
                 _channel->uri.params.udp.endpoint_key, aeron_errmsg());
             goto error_cleanup;
@@ -243,9 +271,19 @@ int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channe
         if (aeron_host_and_port_parse_and_resolve(_channel->uri.params.udp.control_key, &explicit_control_addr) < 0)
         {
             aeron_set_err(
-                aeron_errcode(),
+                -AERON_ERROR_CODE_INVALID_CHANNEL,
                 "could not resolve control address=(%s): %s",
                 _channel->uri.params.udp.control_key, aeron_errmsg());
+            goto error_cleanup;
+        }
+    }
+
+    if (NULL != _channel->uri.params.udp.channel_tag_key)
+    {
+        if ((_channel->tag_id = aeron_uri_parse_tag(_channel->uri.params.udp.channel_tag_key)) == AERON_URI_INVALID_TAG)
+        {
+            aeron_set_err(-AERON_ERROR_CODE_INVALID_CHANNEL, "could not parse channel tag string: %s",
+                _channel->uri.params.udp.channel_tag_key);
             goto error_cleanup;
         }
     }
@@ -262,7 +300,7 @@ int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channe
             endpoint_addr.ss_family, _channel->uri.params.udp.interface_key, &interface_addr, &interface_index) < 0)
         {
             aeron_set_err(
-                aeron_errcode(),
+                -AERON_ERROR_CODE_INVALID_CHANNEL,
                 "could not find interface=(%s): %s",
                 _channel->uri.params.udp.interface_key, aeron_errmsg());
             goto error_cleanup;
@@ -273,7 +311,7 @@ int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channe
         memcpy(&_channel->local_data, &interface_addr, AERON_ADDR_LEN(&interface_addr));
         memcpy(&_channel->local_control, &interface_addr, AERON_ADDR_LEN(&interface_addr));
         aeron_uri_udp_canonicalise(
-            _channel->canonical_form, sizeof(_channel->canonical_form), &interface_addr, &endpoint_addr);
+            _channel->canonical_form, sizeof(_channel->canonical_form), &interface_addr, &endpoint_addr, false);
         _channel->canonical_length = strlen(_channel->canonical_form);
         _channel->multicast = true;
     }
@@ -286,7 +324,7 @@ int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channe
         memcpy(&_channel->local_data, &explicit_control_addr, AERON_ADDR_LEN(&explicit_control_addr));
         memcpy(&_channel->local_control, &explicit_control_addr, AERON_ADDR_LEN(&explicit_control_addr));
         aeron_uri_udp_canonicalise(
-            _channel->canonical_form, sizeof(_channel->canonical_form), &explicit_control_addr, &endpoint_addr);
+            _channel->canonical_form, sizeof(_channel->canonical_form), &explicit_control_addr, &endpoint_addr, false);
         _channel->canonical_length = strlen(_channel->canonical_form);
         _channel->explicit_control = true;
     }
@@ -305,7 +343,11 @@ int aeron_udp_channel_parse(const char *uri, size_t uri_length, aeron_udp_channe
         memcpy(&_channel->local_data, &interface_addr, AERON_ADDR_LEN(&interface_addr));
         memcpy(&_channel->local_control, &interface_addr, AERON_ADDR_LEN(&interface_addr));
         aeron_uri_udp_canonicalise(
-            _channel->canonical_form, sizeof(_channel->canonical_form), &interface_addr, &endpoint_addr);
+            _channel->canonical_form,
+            sizeof(_channel->canonical_form),
+            &interface_addr,
+            &endpoint_addr,
+            has_no_distinguishing_characteristic);
         _channel->canonical_length = strlen(_channel->canonical_form);
     }
 
@@ -330,3 +372,5 @@ void aeron_udp_channel_delete(aeron_udp_channel_t *channel)
         aeron_free(channel);
     }
 }
+
+extern bool aeron_udp_channel_is_wildcard(aeron_udp_channel_t *channel);

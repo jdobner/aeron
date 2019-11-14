@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,7 @@ package io.aeron.driver;
 import io.aeron.ChannelUri;
 import io.aeron.CommonContext;
 import io.aeron.logbuffer.FrameDescriptor;
+import io.aeron.logbuffer.LogBufferDescriptor;
 
 import static io.aeron.CommonContext.*;
 
@@ -31,6 +32,9 @@ class SubscriptionParams
     boolean hasSessionId = false;
     boolean isReliable = true;
     boolean isSparse = true;
+    boolean isTether = true;
+    boolean isRejoin = true;
+    InferableBoolean group = InferableBoolean.INFER;
 
     static SubscriptionParams getSubscriptionParams(final ChannelUri channelUri, final MediaDriver.Context context)
     {
@@ -44,8 +48,6 @@ class SubscriptionParams
         }
 
         int count = 0;
-
-        params.isReliable = !"false".equals(channelUri.get(RELIABLE_STREAM_PARAM_NAME, "true"));
 
         final String initialTermIdStr = channelUri.get(INITIAL_TERM_ID_PARAM_NAME);
         count = initialTermIdStr != null ? count + 1 : count;
@@ -70,10 +72,10 @@ class SubscriptionParams
             params.termId = Integer.parseInt(termIdStr);
             params.termOffset = Integer.parseInt(termOffsetStr);
 
-            if (params.termOffset < 0)
+            if (params.termOffset < 0 || params.termOffset > LogBufferDescriptor.TERM_MAX_LENGTH)
             {
                 throw new IllegalArgumentException(
-                    TERM_OFFSET_PARAM_NAME + "=" + params.termOffset + " must be greater than zero");
+                    TERM_OFFSET_PARAM_NAME + "=" + params.termOffset + " out of range");
             }
 
             if ((params.termOffset & (FrameDescriptor.FRAME_ALIGNMENT - 1)) != 0)
@@ -82,19 +84,48 @@ class SubscriptionParams
                     TERM_OFFSET_PARAM_NAME + "=" + params.termOffset + " must be a multiple of FRAME_ALIGNMENT");
             }
 
+            if (params.termId - params.initialTermId < 0)
+            {
+                throw new IllegalStateException(
+                    "difference greater than 2^31 - 1: " + INITIAL_TERM_ID_PARAM_NAME + "=" +
+                    params.initialTermId + " when " + TERM_ID_PARAM_NAME + "=" + params.termId);
+            }
+
             params.hasJoinPosition = true;
         }
 
+        final String reliableStr = channelUri.get(RELIABLE_STREAM_PARAM_NAME);
+        params.isReliable = null != reliableStr ? "true".equals(reliableStr) : context.reliableStream();
+
+        final String tetherStr = channelUri.get(TETHER_PARAM_NAME);
+        params.isTether = null != tetherStr ? "true".equals(tetherStr) : context.tetherSubscriptions();
+
         final String sparseStr = channelUri.get(SPARSE_PARAM_NAME);
-        if (null != sparseStr)
-        {
-            params.isSparse = "true".equals(sparseStr);
-        }
-        else
-        {
-            params.isSparse = context.termBufferSparseFile();
-        }
+        params.isSparse = null != sparseStr ? "true".equals(sparseStr) : context.termBufferSparseFile();
+
+        final String groupStr = channelUri.get(GROUP_PARAM_NAME);
+        params.group = null != groupStr ? InferableBoolean.parse(groupStr) : context.receiverGroupConsideration();
+
+        final String rejoinStr = channelUri.get(REJOIN_PARAM_NAME);
+        params.isRejoin = null != rejoinStr ? "true".equals(rejoinStr) : context.rejoinStream();
 
         return params;
+    }
+
+    public String toString()
+    {
+        return "SubscriptionParams{" +
+            "initialTermId=" + initialTermId +
+            ", termId=" + termId +
+            ", termOffset=" + termOffset +
+            ", sessionId=" + sessionId +
+            ", hasJoinPosition=" + hasJoinPosition +
+            ", hasSessionId=" + hasSessionId +
+            ", isReliable=" + isReliable +
+            ", isSparse=" + isSparse +
+            ", isTether=" + isTether +
+            ", isRejoin=" + isRejoin +
+            ", group=" + group +
+            '}';
     }
 }

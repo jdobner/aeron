@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,6 +34,7 @@ import org.junit.Test;
 import java.io.File;
 import java.nio.channels.FileChannel;
 
+import static io.aeron.Aeron.NULL_VALUE;
 import static io.aeron.archive.Archive.segmentFileName;
 import static io.aeron.archive.client.AeronArchive.NULL_POSITION;
 import static java.nio.file.StandardOpenOption.*;
@@ -56,7 +57,8 @@ public class RecordingSessionTest
     private static final int MTU_LENGTH = 1024;
     private static final long START_POSITION = TERM_OFFSET;
     private static final int INITIAL_TERM_ID = 0;
-    public static final FileChannel ARCHIVE_CHANNEL = null;
+    private static final FileChannel ARCHIVE_CHANNEL = null;
+    private static final ControlSession CONTROL_SESSION = null;
 
     private final RecordingEventsProxy recordingEventsProxy = mock(RecordingEventsProxy.class);
     private final Counter mockPosition = mock(Counter.class);
@@ -66,7 +68,6 @@ public class RecordingSessionTest
     private UnsafeBuffer mockLogBufferMapped;
     private File termFile;
     private final EpochClock epochClock = mock(EpochClock.class);
-    private final Catalog mockCatalog = mock(Catalog.class);
     private Archive.Context context;
     private long positionLong;
 
@@ -101,7 +102,6 @@ public class RecordingSessionTest
         context = new Archive.Context()
             .segmentFileLength(SEGMENT_LENGTH)
             .archiveDir(archiveDir)
-            .catalog(mockCatalog)
             .epochClock(epochClock);
     }
 
@@ -118,6 +118,7 @@ public class RecordingSessionTest
     public void shouldRecordFragmentsFromImage()
     {
         final RecordingSession session = new RecordingSession(
+            NULL_VALUE,
             RECORDING_ID,
             START_POSITION,
             SEGMENT_LENGTH,
@@ -126,7 +127,8 @@ public class RecordingSessionTest
             image,
             mockPosition,
             ARCHIVE_CHANNEL,
-            context);
+            context,
+            CONTROL_SESSION);
 
         assertEquals(RECORDING_ID, session.sessionId());
 
@@ -167,12 +169,7 @@ public class RecordingSessionTest
         recordingSummary.stopPosition = START_POSITION + RECORDED_BLOCK_LENGTH;
 
         try (RecordingReader reader = new RecordingReader(
-            mockCatalog,
-            recordingSummary,
-            archiveDir,
-            NULL_POSITION,
-            AeronArchive.NULL_LENGTH,
-            null))
+            recordingSummary, archiveDir, NULL_POSITION, AeronArchive.NULL_LENGTH))
         {
             final int fragments = reader.poll(
                 (buffer, offset, length, frameType, flags, reservedValue) ->

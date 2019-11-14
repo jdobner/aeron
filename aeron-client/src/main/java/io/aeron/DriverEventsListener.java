@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,9 +22,10 @@ interface DriverEventsListener
 {
     void onError(long correlationId, int codeValue, ErrorCode errorCode, String message);
 
+    void onAsyncError(long correlationId, int codeValue, ErrorCode errorCode, String message);
+
     void onAvailableImage(
         long correlationId,
-        int streamId,
         int sessionId,
         long subscriptionRegistrationId,
         int subscriberPositionId,
@@ -40,14 +41,9 @@ interface DriverEventsListener
         int statusIndicatorId,
         String logFileName);
 
-    void onNewSubscription(
-        long correlationId,
-        int statusIndicatorId);
+    void onNewSubscription(long correlationId, int statusIndicatorId);
 
-    void onUnavailableImage(
-        long correlationId,
-        long subscriptionRegistrationId,
-        int streamId);
+    void onUnavailableImage(long correlationId, long subscriptionRegistrationId);
 
     void onNewExclusivePublication(
         long correlationId,
@@ -58,19 +54,13 @@ interface DriverEventsListener
         int statusIndicatorId,
         String logFileName);
 
-    void onChannelEndpointError(
-        int statusIndicatorId,
-        String message);
+    void onChannelEndpointError(int statusIndicatorId, String message);
 
-    void onNewCounter(
-        long correlationId,
-        int counterId);
+    void onNewCounter(long correlationId, int counterId);
 
-    void onAvailableCounter(
-        long correlationId,
-        int counterId);
+    void onAvailableCounter(long correlationId, int counterId);
 
-    void onUnavailableCounter(
-        long correlationId,
-        int counterId);
+    void onUnavailableCounter(long correlationId, int counterId);
+
+    void onClientTimeout();
 }

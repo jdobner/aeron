@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,7 +24,6 @@ import org.agrona.concurrent.UnsafeBuffer;
 import java.nio.ByteBuffer;
 
 import static io.aeron.protocol.DataHeaderFlyweight.HEADER_LENGTH;
-import static java.lang.Integer.valueOf;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
 import static org.mockito.Mockito.*;
 import static io.aeron.logbuffer.FrameDescriptor.*;
@@ -38,7 +37,7 @@ public class TermRebuilderTest
     @Before
     public void setUp()
     {
-        when(valueOf(termBuffer.capacity())).thenReturn(valueOf(TERM_BUFFER_CAPACITY));
+        when(termBuffer.capacity()).thenReturn(TERM_BUFFER_CAPACITY);
     }
 
     @Test

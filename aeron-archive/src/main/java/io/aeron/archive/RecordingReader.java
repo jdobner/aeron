@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,8 +15,6 @@
  */
 package io.aeron.archive;
 
-import io.aeron.Counter;
-import io.aeron.archive.client.AeronArchive;
 import io.aeron.logbuffer.FrameDescriptor;
 import io.aeron.logbuffer.LogBufferDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
@@ -33,14 +31,13 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileAttribute;
 import java.util.EnumSet;
 
-import static io.aeron.archive.Archive.segmentFileIndex;
 import static io.aeron.archive.Archive.segmentFileName;
-import static io.aeron.archive.client.AeronArchive.NULL_POSITION;
-import static io.aeron.logbuffer.FrameDescriptor.*;
+import static io.aeron.archive.client.AeronArchive.*;
+import static io.aeron.logbuffer.FrameDescriptor.FRAME_ALIGNMENT;
 import static io.aeron.protocol.DataHeaderFlyweight.RESERVED_VALUE_OFFSET;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
-import static java.nio.file.StandardOpenOption.*;
+import static java.nio.file.StandardOpenOption.READ;
 
 class RecordingReader implements AutoCloseable
 {
@@ -52,52 +49,43 @@ class RecordingReader implements AutoCloseable
     private final int segmentLength;
     private final int termLength;
 
-    private final Catalog catalog;
-    private final Counter recordingPosition;
     private final UnsafeBuffer termBuffer;
     private MappedByteBuffer mappedSegmentBuffer;
 
-    private long stopPosition;
     private long replayPosition;
     private long replayLimit;
+    private long segmentFilePosition;
     private int termOffset;
     private int termBaseSegmentOffset;
-    private int segmentFileIndex;
     private boolean isDone = false;
 
     RecordingReader(
-        final Catalog catalog,
-        final RecordingSummary recordingSummary,
-        final File archiveDir,
-        final long position,
-        final long length,
-        final Counter recordingPosition)
+        final RecordingSummary recordingSummary, final File archiveDir, final long position, final long length)
     {
-        this.catalog = catalog;
+        if (position < NULL_POSITION)
+        {
+            throw new IllegalArgumentException("invalid position: " + position);
+        }
+
+        if (length < NULL_LENGTH)
+        {
+            throw new IllegalArgumentException("invalid length: " + length);
+        }
+
         this.archiveDir = archiveDir;
-        this.recordingPosition = recordingPosition;
         this.termLength = recordingSummary.termBufferLength;
         this.segmentLength = recordingSummary.segmentFileLength;
         this.recordingId = recordingSummary.recordingId;
-        this.stopPosition = null == recordingPosition ? recordingSummary.stopPosition : recordingPosition.get();
 
         final long startPosition = recordingSummary.startPosition;
         final long fromPosition = position == NULL_POSITION ? startPosition : position;
-        final long maxLength = null == recordingPosition ? stopPosition - fromPosition : Long.MAX_VALUE - fromPosition;
+        final long maxLength = recordingSummary.stopPosition != NULL_POSITION ?
+            recordingSummary.stopPosition - fromPosition : Long.MAX_VALUE - fromPosition;
 
-        final long replayLength = length == AeronArchive.NULL_LENGTH ? maxLength : Math.min(length, maxLength);
+        final long replayLength = length == NULL_LENGTH ? maxLength : Math.min(length, maxLength);
         if (replayLength < 0)
         {
             throw new IllegalArgumentException("length must be positive");
-        }
-
-        if (null != recordingPosition)
-        {
-            final long currentPosition = recordingPosition.get();
-            if (currentPosition < fromPosition)
-            {
-                throw new IllegalArgumentException(fromPosition + " after current position of " + currentPosition);
-            }
         }
 
         final int positionBitsToShift = LogBufferDescriptor.positionBitsToShift(termLength);
@@ -105,14 +93,14 @@ class RecordingReader implements AutoCloseable
         final int segmentOffset = (int)(fromPosition - startTermBasePosition) & (segmentLength - 1);
         final int termId = ((int)(fromPosition >> positionBitsToShift) + recordingSummary.initialTermId);
 
-        segmentFileIndex = segmentFileIndex(startPosition, fromPosition, segmentLength);
+        segmentFilePosition = segmentFileBasePosition(startPosition, fromPosition, termLength, segmentLength);
         openRecordingSegment();
 
         termOffset = (int)(fromPosition & (termLength - 1));
         termBaseSegmentOffset = segmentOffset - termOffset;
         termBuffer = new UnsafeBuffer(mappedSegmentBuffer, termBaseSegmentOffset, termLength);
 
-        if (fromPosition > startPosition && fromPosition != stopPosition &&
+        if (fromPosition > startPosition &&
             (DataHeaderFlyweight.termOffset(termBuffer, termOffset) != termOffset ||
             DataHeaderFlyweight.termId(termBuffer, termOffset) != termId ||
             DataHeaderFlyweight.streamId(termBuffer, termOffset) != recordingSummary.streamId))
@@ -135,6 +123,11 @@ class RecordingReader implements AutoCloseable
         return recordingId;
     }
 
+    long replayPosition()
+    {
+        return replayPosition;
+    }
+
     boolean isDone()
     {
         return isDone;
@@ -144,12 +137,7 @@ class RecordingReader implements AutoCloseable
     {
         int fragments = 0;
 
-        if (recordingPosition != null && replayPosition == stopPosition && noNewData(replayPosition, stopPosition))
-        {
-            return fragments;
-        }
-
-        while (replayPosition < stopPosition && fragments < fragmentLimit)
+        while (replayPosition < replayLimit && fragments < fragmentLimit)
         {
             if (termOffset == termLength)
             {
@@ -159,6 +147,13 @@ class RecordingReader implements AutoCloseable
             final int frameOffset = termOffset;
             final UnsafeBuffer termBuffer = this.termBuffer;
             final int frameLength = FrameDescriptor.frameLength(termBuffer, frameOffset);
+            if (frameLength <= 0)
+            {
+                isDone = true;
+                closeRecordingSegment();
+                break;
+            }
+
             final int frameType = FrameDescriptor.frameType(termBuffer, frameOffset);
             final byte flags = FrameDescriptor.frameFlags(termBuffer, frameOffset);
             final long reservedValue = termBuffer.getLong(frameOffset + RESERVED_VALUE_OFFSET, LITTLE_ENDIAN);
@@ -184,30 +179,6 @@ class RecordingReader implements AutoCloseable
         return fragments;
     }
 
-    private boolean noNewData(final long replayPosition, final long oldStopPosition)
-    {
-        final long currentRecodingPosition = recordingPosition.get();
-        final boolean hasRecordingStopped = recordingPosition.isClosed();
-        final long newStopPosition = hasRecordingStopped ? catalog.stopPosition(recordingId) : currentRecodingPosition;
-
-        if (hasRecordingStopped && newStopPosition < replayLimit)
-        {
-            replayLimit = newStopPosition;
-        }
-
-        if (replayPosition >= replayLimit)
-        {
-            isDone = true;
-        }
-        else if (newStopPosition > oldStopPosition)
-        {
-            stopPosition = newStopPosition;
-            return false;
-        }
-
-        return true;
-    }
-
     private void nextTerm()
     {
         termOffset = 0;
@@ -216,7 +187,7 @@ class RecordingReader implements AutoCloseable
         if (termBaseSegmentOffset == segmentLength)
         {
             closeRecordingSegment();
-            segmentFileIndex++;
+            segmentFilePosition += segmentLength;
             openRecordingSegment();
             termBaseSegmentOffset = 0;
         }
@@ -232,7 +203,7 @@ class RecordingReader implements AutoCloseable
 
     private void openRecordingSegment()
     {
-        final String segmentFileName = segmentFileName(recordingId, segmentFileIndex);
+        final String segmentFileName = segmentFileName(recordingId, segmentFilePosition);
         final File segmentFile = new File(archiveDir, segmentFileName);
 
         if (!segmentFile.exists())

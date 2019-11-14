@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,7 +23,7 @@ import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
 import org.junit.runner.RunWith;
 
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 @RunWith(Theories.class)
@@ -47,6 +47,7 @@ public class TermBufferLengthTest
     {
         final MediaDriver.Context ctx = new MediaDriver.Context()
             .errorHandler(Throwable::printStackTrace)
+            .dirDeleteOnShutdown(true)
             .publicationTermBufferLength(TEST_TERM_LENGTH * 2)
             .ipcTermBufferLength(TEST_TERM_LENGTH * 2);
 
@@ -55,10 +56,6 @@ public class TermBufferLengthTest
             Publication publication = aeron.addPublication(channel, STREAM_ID))
         {
             assertThat(publication.termBufferLength(), is(TEST_TERM_LENGTH));
-        }
-        finally
-        {
-            ctx.deleteAeronDirectory();
         }
     }
 }

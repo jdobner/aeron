@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -40,12 +40,13 @@ using namespace std::placeholders;
 #define MANY_TO_ONE_RING_BUFFER_LENGTH (CAPACITY + RingBufferDescriptor::TRAILER_LENGTH)
 #define BROADCAST_BUFFER_LENGTH (CAPACITY + BroadcastBufferDescriptor::TRAILER_LENGTH)
 #define COUNTER_VALUES_BUFFER_LENGTH (1024 * 1024)
-#define COUNTER_METADATA_BUFFER_LENGTH (1024 * 1024)
+#define COUNTER_METADATA_BUFFER_LENGTH (4 * 1024 * 1024)
 
 static const long DRIVER_TIMEOUT_MS = 10 * 1000;
 static const long RESOURCE_LINGER_TIMEOUT_MS = 5 * 1000;
 static const long long INTER_SERVICE_TIMEOUT_NS = 5 * 1000 * 1000 * 1000LL;
 static const long INTER_SERVICE_TIMEOUT_MS = INTER_SERVICE_TIMEOUT_NS / 1000000L;
+static const bool PRE_TOUCH_MAPPED_MEMORY = false;
 
 typedef std::array<std::uint8_t, MANY_TO_ONE_RING_BUFFER_LENGTH> many_to_one_ring_buffer_t;
 typedef std::array<std::uint8_t, BROADCAST_BUFFER_LENGTH> broadcast_buffer_t;
@@ -91,9 +92,11 @@ public:
             [&](const std::exception& exception) { m_errorHandler(exception); },
             std::bind(&testing::NiceMock<MockClientConductorHandlers>::onAvailableCounter, &m_handlers, _1, _2, _3),
             std::bind(&testing::NiceMock<MockClientConductorHandlers>::onUnavailableCounter, &m_handlers, _1, _2, _3),
+            defaultOnCloseClientHandler,
             DRIVER_TIMEOUT_MS,
             RESOURCE_LINGER_TIMEOUT_MS,
-            INTER_SERVICE_TIMEOUT_NS),
+            INTER_SERVICE_TIMEOUT_NS,
+            PRE_TOUCH_MAPPED_MEMORY),
         m_errorHandler(defaultErrorHandler),
         m_onAvailableImageHandler(std::bind(&testing::NiceMock<MockClientConductorHandlers>::onNewImage, &m_handlers, _1)),
         m_onUnavailableImageHandler(std::bind(&testing::NiceMock<MockClientConductorHandlers>::onInactive, &m_handlers, _1)),

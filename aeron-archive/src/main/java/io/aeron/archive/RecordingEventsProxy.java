@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -50,6 +50,11 @@ class RecordingEventsProxy implements AutoCloseable
         final String channel,
         final String sourceIdentity)
     {
+        if (null == publication)
+        {
+            return;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + RecordingStartedEncoder.BLOCK_LENGTH +
             RecordingStartedEncoder.channelHeaderLength() + channel.length() +
             RecordingStartedEncoder.sourceIdentityHeaderLength() + sourceIdentity.length();
@@ -84,8 +89,14 @@ class RecordingEventsProxy implements AutoCloseable
 
     void progress(final long recordingId, final long startPosition, final long position)
     {
+        if (null == publication)
+        {
+            return;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + RecordingProgressEncoder.BLOCK_LENGTH;
         final long result = publication.tryClaim(length, bufferClaim);
+
         if (result > 0)
         {
             recordingProgressEncoder
@@ -104,6 +115,11 @@ class RecordingEventsProxy implements AutoCloseable
 
     void stopped(final long recordingId, final long startPosition, final long stopPosition)
     {
+        if (null == publication)
+        {
+            return;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + RecordingStoppedEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;

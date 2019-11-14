@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,6 +23,8 @@ import org.agrona.LangUtil;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 
+import static io.aeron.archive.client.AeronArchive.NULL_POSITION;
+
 /**
  * Consumes an {@link Image} and records data to file using a {@link RecordingWriter}.
  */
@@ -33,6 +35,7 @@ class RecordingSession implements Session
         INIT, RECORDING, INACTIVE, STOPPED
     }
 
+    private final long correlationId;
     private final long recordingId;
     private final int blockLengthLimit;
     private final RecordingEventsProxy recordingEventsProxy;
@@ -41,8 +44,10 @@ class RecordingSession implements Session
     private final RecordingWriter recordingWriter;
     private State state = State.INIT;
     private final String originalChannel;
+    private final ControlSession controlSession;
 
     RecordingSession(
+        final long correlationId,
         final long recordingId,
         final long startPosition,
         final int segmentLength,
@@ -51,16 +56,24 @@ class RecordingSession implements Session
         final Image image,
         final Counter position,
         final FileChannel archiveDirChannel,
-        final Archive.Context ctx)
+        final Archive.Context ctx,
+        final ControlSession controlSession)
     {
+        this.correlationId = correlationId;
         this.recordingId = recordingId;
         this.originalChannel = originalChannel;
         this.recordingEventsProxy = recordingEventsProxy;
         this.image = image;
         this.position = position;
+        this.controlSession = controlSession;
 
         blockLengthLimit = Math.min(image.termBufferLength(), Archive.Configuration.MAX_BLOCK_LENGTH);
         recordingWriter = new RecordingWriter(recordingId, startPosition, segmentLength, image, ctx, archiveDirChannel);
+    }
+
+    public long correlationId()
+    {
+        return correlationId;
     }
 
     public long sessionId()
@@ -89,18 +102,28 @@ class RecordingSession implements Session
         return position;
     }
 
+    public long recordedPosition()
+    {
+        if (position.isClosed())
+        {
+            return NULL_POSITION;
+        }
+
+        return position.get();
+    }
+
     public int doWork()
     {
-        int workDone = 0;
+        int workCount = 0;
 
         if (State.INIT == state)
         {
-            workDone += init();
+            workCount += init();
         }
 
         if (State.RECORDING == state)
         {
-            workDone += record();
+            workCount += record();
         }
 
         if (State.INACTIVE == state)
@@ -108,10 +131,20 @@ class RecordingSession implements Session
             state = State.STOPPED;
             recordingEventsProxy.stopped(recordingId, image.joinPosition(), image.position());
             recordingWriter.close();
-            workDone += 1;
+            workCount += 1;
         }
 
-        return workDone;
+        return workCount;
+    }
+
+    Image image()
+    {
+        return image;
+    }
+
+    ControlSession controlSession()
+    {
+        return controlSession;
     }
 
     private int init()
@@ -122,7 +155,7 @@ class RecordingSession implements Session
         }
         catch (final IOException ex)
         {
-            close();
+            recordingWriter.close();
             state = State.STOPPED;
             LangUtil.rethrowUnchecked(ex);
         }
@@ -154,17 +187,17 @@ class RecordingSession implements Session
             }
             else if (image.isEndOfStream() || image.isClosed())
             {
-                this.state = State.INACTIVE;
+                state = State.INACTIVE;
             }
 
             if (recordingWriter.isClosed())
             {
-                this.state = State.INACTIVE;
+                state = State.INACTIVE;
             }
         }
         catch (final Exception ex)
         {
-            this.state = State.INACTIVE;
+            state = State.INACTIVE;
             LangUtil.rethrowUnchecked(ex);
         }
 

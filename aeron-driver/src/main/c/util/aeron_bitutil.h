@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +17,7 @@
 #ifndef AERON_BITUTIL_H
 #define AERON_BITUTIL_H
 
+#include <assert.h>
 #include <stdint.h>
 #include <stddef.h>
 #include "util/aeron_platform.h"
@@ -33,6 +34,11 @@
 inline int aeron_number_of_trailing_zeroes(int32_t value)
 {
 #if defined(__GNUC__)
+    if (0 == value)
+    {
+        return 32;
+    }
+
     return __builtin_ctz(value);
 #elif defined(_MSC_VER)
     unsigned long r;
@@ -42,7 +48,7 @@ inline int aeron_number_of_trailing_zeroes(int32_t value)
 
     return 32;
 #else
-    static char table[32] =
+    char table[32] =
     {
         0, 1, 2, 24, 3, 19, 6, 25,
         22, 4, 20, 10, 16, 7, 12, 26,
@@ -55,7 +61,7 @@ inline int aeron_number_of_trailing_zeroes(int32_t value)
         return 32;
     }
 
-    uint32_t index = static_cast<uint32_t>((value & -value) * 0x04D7651F);
+    uint32_t index = (uint32_t)((value & -value) * 0x04D7651F);
 
     return table[index >> 27];
 #endif
@@ -64,6 +70,11 @@ inline int aeron_number_of_trailing_zeroes(int32_t value)
 inline int aeron_number_of_leading_zeroes(int32_t value)
 {
 #if defined(__GNUC__)
+    if (0 == value)
+    {
+        return 32;
+    }
+
     return __builtin_clz(value);
 #elif defined(_MSC_VER)
     unsigned long r;

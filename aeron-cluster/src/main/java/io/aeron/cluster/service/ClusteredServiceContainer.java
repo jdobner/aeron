@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,11 +21,9 @@ import io.aeron.archive.client.AeronArchive;
 import io.aeron.cluster.client.ClusterException;
 import io.aeron.cluster.codecs.mark.ClusterComponentType;
 import io.aeron.cluster.codecs.mark.MarkFileHeaderEncoder;
+import io.aeron.exceptions.ConcurrentConcludeException;
 import io.aeron.exceptions.ConfigurationException;
-import org.agrona.CloseHelper;
-import org.agrona.ErrorHandler;
-import org.agrona.IoUtil;
-import org.agrona.LangUtil;
+import org.agrona.*;
 import org.agrona.concurrent.*;
 import org.agrona.concurrent.errors.DistinctErrorLog;
 import org.agrona.concurrent.errors.LoggingErrorHandler;
@@ -33,13 +31,23 @@ import org.agrona.concurrent.status.AtomicCounter;
 import org.agrona.concurrent.status.StatusIndicator;
 
 import java.io.File;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.Supplier;
 
 import static io.aeron.driver.status.SystemCounterDescriptor.SYSTEM_COUNTER_TYPE_ID;
+import static java.util.concurrent.atomic.AtomicIntegerFieldUpdater.newUpdater;
 import static org.agrona.SystemUtil.getSizeAsInt;
 import static org.agrona.SystemUtil.loadPropertiesFiles;
 
+/**
+ * Container for a service in the cluster managed by the Consensus Module. This is where business logic resides and
+ * loaded via {@link ClusteredServiceContainer.Configuration#SERVICE_CLASS_NAME_PROP_NAME} or
+ * {@link ClusteredServiceContainer.Context#clusteredService(ClusteredService)}.
+ */
+@SuppressWarnings("unused")
 public final class ClusteredServiceContainer implements AutoCloseable
 {
     /**
@@ -82,6 +90,7 @@ public final class ClusteredServiceContainer implements AutoCloseable
                 ctx.markFile.signalFailedStart();
             }
 
+            ctx.close();
             throw ex;
         }
 
@@ -129,7 +138,6 @@ public final class ClusteredServiceContainer implements AutoCloseable
     public void close()
     {
         CloseHelper.close(serviceAgentRunner);
-        CloseHelper.close(ctx);
     }
 
     /**
@@ -137,6 +145,11 @@ public final class ClusteredServiceContainer implements AutoCloseable
      */
     public static class Configuration
     {
+        /**
+         * Update interval for cluster mark file.
+         */
+        public static final long MARK_FILE_UPDATE_INTERVAL_NS = TimeUnit.SECONDS.toNanos(1);
+
         /**
          * Identity for a clustered service. Services should be numbered from 0 and be contiguous.
          */
@@ -221,7 +234,7 @@ public final class ClusteredServiceContainer implements AutoCloseable
         /**
          * Default channel to be used for archiving snapshots.
          */
-        public static final String SNAPSHOT_CHANNEL_DEFAULT = CommonContext.IPC_CHANNEL;
+        public static final String SNAPSHOT_CHANNEL_DEFAULT = CommonContext.IPC_CHANNEL + "?alias=snapshot";
 
         /**
          * Stream id within a channel for archiving snapshots.
@@ -362,7 +375,14 @@ public final class ClusteredServiceContainer implements AutoCloseable
             return Integer.getInteger(SNAPSHOT_STREAM_ID_PROP_NAME, SNAPSHOT_STREAM_ID_DEFAULT);
         }
 
+        /**
+         * Default {@link IdleStrategy} to be employed for cluster agents.
+         */
         public static final String DEFAULT_IDLE_STRATEGY = "org.agrona.concurrent.BackoffIdleStrategy";
+
+        /**
+         * {@link IdleStrategy} to be employed for cluster agents.
+         */
         public static final String CLUSTER_IDLE_STRATEGY_PROP_NAME = "aeron.cluster.idle.strategy";
 
         /**
@@ -418,8 +438,20 @@ public final class ClusteredServiceContainer implements AutoCloseable
         }
     }
 
-    public static class Context implements AutoCloseable, Cloneable
+    /**
+     * The context will be owned by {@link ClusteredServiceAgent} after a successful
+     * {@link ClusteredServiceContainer#launch(Context)} and closed via {@link ClusteredServiceContainer#close()}.
+     */
+    public static class Context implements Cloneable
     {
+        /**
+         * Using an integer because there is no support for boolean. 1 is concluded, 0 is not concluded.
+         */
+        private static final AtomicIntegerFieldUpdater<Context> IS_CONCLUDED_UPDATER = newUpdater(
+            Context.class, "isConcluded");
+        private volatile int isConcluded;
+
+        private int appVersion = SemanticVersion.compose(0, 0, 1);
         private int serviceId = Configuration.serviceId();
         private String serviceName = Configuration.serviceName();
         private String replayChannel = Configuration.replayChannel();
@@ -432,6 +464,7 @@ public final class ClusteredServiceContainer implements AutoCloseable
         private int errorBufferLength = Configuration.errorBufferLength();
         private boolean isRespondingService = Configuration.isRespondingService();
 
+        private CountDownLatch abortLatch;
         private ThreadFactory threadFactory;
         private Supplier<IdleStrategy> idleStrategySupplier;
         private EpochClock epochClock;
@@ -471,9 +504,14 @@ public final class ClusteredServiceContainer implements AutoCloseable
         @SuppressWarnings("MethodLength")
         public void conclude()
         {
+            if (0 != IS_CONCLUDED_UPDATER.getAndSet(this, 1))
+            {
+                throw new ConcurrentConcludeException();
+            }
+
             if (serviceId < 0)
             {
-                throw new ConfigurationException("service id must be not be negative: " + serviceId);
+                throw new ConfigurationException("service id cannot be negative: " + serviceId);
             }
 
             if (null == threadFactory)
@@ -525,6 +563,7 @@ public final class ClusteredServiceContainer implements AutoCloseable
                     new Aeron.Context()
                         .aeronDirectoryName(aeronDirectoryName)
                         .errorHandler(errorHandler)
+                        .awaitingIdleStrategy(YieldingIdleStrategy.INSTANCE)
                         .epochClock(epochClock));
 
                 ownsAeronClient = true;
@@ -556,7 +595,7 @@ public final class ClusteredServiceContainer implements AutoCloseable
                 .aeron(aeron)
                 .ownsAeronClient(false)
                 .errorHandler(countedErrorHandler)
-                .lock(new NoOpLock());
+                .lock(NoOpLock.INSTANCE);
 
             if (null == shutdownSignalBarrier)
             {
@@ -586,7 +625,36 @@ public final class ClusteredServiceContainer implements AutoCloseable
                 }
             }
 
+            abortLatch = new CountDownLatch(aeron.conductorAgentInvoker() == null ? 1 : 0);
             concludeMarkFile();
+        }
+
+        /**
+         * User assigned application version which appended to the log as the appVersion in new leadership events.
+         * <p>
+         * This can be validated using {@link org.agrona.SemanticVersion} to ensure only application nodes of the same
+         * major version communicate with each other.
+         *
+         * @param appVersion for user application.
+         * @return this for a fluent API.
+         */
+        public Context appVersion(final int appVersion)
+        {
+            this.appVersion = appVersion;
+            return this;
+        }
+
+        /**
+         * User assigned application version which appended to the log as the appVersion in new leadership events.
+         * <p>
+         * This can be validated using {@link org.agrona.SemanticVersion} to ensure only application nodes of the same
+         * major version communicate with each other.
+         *
+         * @return appVersion for user application.
+         */
+        public int appVersion()
+        {
+            return appVersion;
         }
 
         /**
@@ -852,9 +920,9 @@ public final class ClusteredServiceContainer implements AutoCloseable
         }
 
         /**
-         * Provides an {@link IdleStrategy} supplier for the thread responsible for publication/subscription backoff.
+         * Provides an {@link IdleStrategy} supplier for the idle strategy for the agent duty cycle.
          *
-         * @param idleStrategySupplier supplier of thread idle strategy for publication/subscription backoff.
+         * @param idleStrategySupplier supplier for the idle strategy for the agent duty cycle.
          * @return this for a fluent API.
          */
         public Context idleStrategySupplier(final Supplier<IdleStrategy> idleStrategySupplier)
@@ -1052,7 +1120,7 @@ public final class ClusteredServiceContainer implements AutoCloseable
         }
 
         /**
-         * Set the {@link AeronArchive.Context} that should be used for communicating with the local Archive.
+         * Set the context that should be used for communicating with the local Archive.
          *
          * @param archiveContext that should be used for communicating with the local Archive.
          * @return this for a fluent API.
@@ -1064,9 +1132,9 @@ public final class ClusteredServiceContainer implements AutoCloseable
         }
 
         /**
-         * Get the {@link AeronArchive.Context} that should be used for communicating with the local Archive.
+         * Get the context that should be used for communicating with the local Archive.
          *
-         * @return the {@link AeronArchive.Context} that should be used for communicating with the local Archive.
+         * @return the context that should be used for communicating with the local Archive.
          */
         public AeronArchive.Context archiveContext()
         {
@@ -1251,12 +1319,17 @@ public final class ClusteredServiceContainer implements AutoCloseable
          */
         public void close()
         {
-            CloseHelper.quietClose(markFile);
+            CloseHelper.close(markFile);
 
             if (ownsAeronClient)
             {
                 CloseHelper.close(aeron);
             }
+        }
+
+        CountDownLatch abortLatch()
+        {
+            return abortLatch;
         }
 
         private void concludeMarkFile()

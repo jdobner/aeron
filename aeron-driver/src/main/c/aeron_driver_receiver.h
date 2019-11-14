@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -36,12 +36,12 @@ aeron_driver_receiver_image_entry_t;
 
 typedef struct aeron_driver_receiver_pending_setup_entry_stct
 {
-    aeron_receive_channel_endpoint_t *endpoint;
-    int64_t time_of_status_message_ns;
+    bool is_periodic;
     int32_t session_id;
     int32_t stream_id;
+    aeron_receive_channel_endpoint_t *endpoint;
+    int64_t time_of_status_message_ns;
     struct sockaddr_storage control_addr;
-    bool is_periodic;
 }
 aeron_driver_receiver_pending_setup_entry_t;
 
@@ -75,6 +75,8 @@ typedef struct aeron_driver_receiver_stct
     pending_setups;
 
     aeron_driver_context_t *context;
+    aeron_udp_transport_poller_poll_func_t poller_poll_func;
+    aeron_udp_channel_transport_recvmmsg_func_t recvmmsg_func;
     aeron_distinct_error_log_t *error_log;
 
     int64_t *errors_counter;

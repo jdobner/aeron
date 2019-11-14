@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,6 +23,9 @@ import io.aeron.logbuffer.ControlledFragmentHandler;
 import io.aeron.logbuffer.Header;
 import org.agrona.DirectBuffer;
 
+/**
+ * Poller for the egress from a cluster to capture administration message details.
+ */
 public class EgressPoller implements ControlledFragmentHandler
 {
     private final int fragmentLimit;
@@ -30,7 +33,7 @@ public class EgressPoller implements ControlledFragmentHandler
     private final SessionEventDecoder sessionEventDecoder = new SessionEventDecoder();
     private final ChallengeDecoder challengeDecoder = new ChallengeDecoder();
     private final NewLeaderEventDecoder newLeaderEventDecoder = new NewLeaderEventDecoder();
-    private final EgressMessageHeaderDecoder egressMessageHeaderDecoder = new EgressMessageHeaderDecoder();
+    private final SessionMessageHeaderDecoder sessionMessageHeaderDecoder = new SessionMessageHeaderDecoder();
     private final ControlledFragmentAssembler fragmentAssembler = new ControlledFragmentAssembler(this);
     private final Subscription subscription;
     private long clusterSessionId = Aeron.NULL_VALUE;
@@ -38,7 +41,8 @@ public class EgressPoller implements ControlledFragmentHandler
     private long leadershipTermId = Aeron.NULL_VALUE;
     private int leaderMemberId = Aeron.NULL_VALUE;
     private int templateId = Aeron.NULL_VALUE;
-    private boolean pollComplete = false;
+    private int version = 0;
+    private boolean isPollComplete = false;
     private EventCode eventCode;
     private String detail = "";
     private byte[] encodedChallenge;
@@ -120,6 +124,16 @@ public class EgressPoller implements ControlledFragmentHandler
     }
 
     /**
+     * Version response from the server in semantic version form.
+     *
+     * @return response from the server in semantic version form.
+     */
+    public int version()
+    {
+        return version;
+    }
+
+    /**
      * Get the detail returned in the last session event.
      *
      * @return the detail returned in the last session event.
@@ -146,7 +160,7 @@ public class EgressPoller implements ControlledFragmentHandler
      */
     public boolean isPollComplete()
     {
-        return pollComplete;
+        return isPollComplete;
     }
 
     /**
@@ -166,10 +180,11 @@ public class EgressPoller implements ControlledFragmentHandler
         leadershipTermId = Aeron.NULL_VALUE;
         leaderMemberId = Aeron.NULL_VALUE;
         templateId = Aeron.NULL_VALUE;
+        version = 0;
         eventCode = null;
         detail = "";
         encodedChallenge = null;
-        pollComplete = false;
+        isPollComplete = false;
 
         return subscription.controlledPoll(fragmentAssembler, fragmentLimit);
     }
@@ -177,11 +192,34 @@ public class EgressPoller implements ControlledFragmentHandler
     public ControlledFragmentAssembler.Action onFragment(
         final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
+        if (isPollComplete)
+        {
+            return Action.ABORT;
+        }
+
         messageHeaderDecoder.wrap(buffer, offset);
+
+        final int schemaId = messageHeaderDecoder.schemaId();
+        if (schemaId != MessageHeaderDecoder.SCHEMA_ID)
+        {
+            throw new ClusterException("expected schemaId=" + MessageHeaderDecoder.SCHEMA_ID + ", actual=" + schemaId);
+        }
 
         templateId = messageHeaderDecoder.templateId();
         switch (templateId)
         {
+            case SessionMessageHeaderDecoder.TEMPLATE_ID:
+                sessionMessageHeaderDecoder.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    messageHeaderDecoder.blockLength(),
+                    messageHeaderDecoder.version());
+
+                leadershipTermId = sessionMessageHeaderDecoder.leadershipTermId();
+                clusterSessionId = sessionMessageHeaderDecoder.clusterSessionId();
+                isPollComplete = true;
+                return Action.BREAK;
+
             case SessionEventDecoder.TEMPLATE_ID:
                 sessionEventDecoder.wrap(
                     buffer,
@@ -194,8 +232,10 @@ public class EgressPoller implements ControlledFragmentHandler
                 leadershipTermId = sessionEventDecoder.leadershipTermId();
                 leaderMemberId = sessionEventDecoder.leaderMemberId();
                 eventCode = sessionEventDecoder.code();
+                version = sessionEventDecoder.version();
                 detail = sessionEventDecoder.detail();
-                break;
+                isPollComplete = true;
+                return Action.BREAK;
 
             case NewLeaderEventDecoder.TEMPLATE_ID:
                 newLeaderEventDecoder.wrap(
@@ -208,18 +248,8 @@ public class EgressPoller implements ControlledFragmentHandler
                 leadershipTermId = newLeaderEventDecoder.leadershipTermId();
                 leaderMemberId = newLeaderEventDecoder.leaderMemberId();
                 detail = newLeaderEventDecoder.memberEndpoints();
-                break;
-
-            case EgressMessageHeaderDecoder.TEMPLATE_ID:
-                egressMessageHeaderDecoder.wrap(
-                    buffer,
-                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
-                    messageHeaderDecoder.blockLength(),
-                    messageHeaderDecoder.version());
-
-                leadershipTermId = egressMessageHeaderDecoder.leadershipTermId();
-                clusterSessionId = egressMessageHeaderDecoder.clusterSessionId();
-                break;
+                isPollComplete = true;
+                return Action.BREAK;
 
             case ChallengeDecoder.TEMPLATE_ID:
                 challengeDecoder.wrap(
@@ -233,14 +263,10 @@ public class EgressPoller implements ControlledFragmentHandler
 
                 clusterSessionId = challengeDecoder.clusterSessionId();
                 correlationId = challengeDecoder.correlationId();
-                break;
-
-            default:
-                throw new ClusterException("unknown templateId: " + templateId);
+                isPollComplete = true;
+                return Action.BREAK;
         }
 
-        pollComplete = true;
-
-        return ControlledFragmentAssembler.Action.BREAK;
+        return Action.CONTINUE;
     }
 }

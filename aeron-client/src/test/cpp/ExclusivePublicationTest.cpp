@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -82,7 +82,7 @@ public:
     void createPub()
     {
         m_publication = std::unique_ptr<ExclusivePublication>(new ExclusivePublication(
-            m_conductor, CHANNEL, CORRELATION_ID, CORRELATION_ID, STREAM_ID, SESSION_ID,
+            m_conductor, CHANNEL, CORRELATION_ID, STREAM_ID, SESSION_ID,
             m_publicationLimit, ChannelEndpointStatus::NO_ID_ALLOCATED, m_logBuffers));
     }
 
@@ -230,4 +230,3 @@ TEST_F(ExclusivePublicationTest, shouldRotateWhenClaimTrips)
     EXPECT_GT(m_publication->tryClaim(SRC_BUFFER_LENGTH, bufferClaim), initialPosition + DataFrameHeader::LENGTH + m_srcBuffer.capacity());
     EXPECT_GT(m_publication->position(), initialPosition + DataFrameHeader::LENGTH + m_srcBuffer.capacity());
 }
-

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,23 +17,24 @@
 #include <cstdint>
 #include <cstdio>
 #include <signal.h>
-#include <util/CommandOptionParser.h>
 #include <thread>
-#include <Aeron.h>
 #include <array>
-#include <concurrent/BusySpinIdleStrategy.h>
-#include "Configuration.h"
-#include "RateReporter.h"
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 
+#include "util/CommandOptionParser.h"
+#include "concurrent/BusySpinIdleStrategy.h"
+#include "Configuration.h"
+#include "RateReporter.h"
+#include "Aeron.h"
+
 using namespace aeron::util;
 using namespace aeron;
 
-std::atomic<bool> running (true);
+std::atomic<bool> running(true);
 
-void sigIntHandler (int param)
+void sigIntHandler(int param)
 {
     running = false;
 }
@@ -79,6 +80,7 @@ Settings parseCmdLine(CommandOptionParser& cp, int argc, char** argv)
     s.lingerTimeoutMs = cp.getOption(optLinger).getParamAsInt(0, 0, 60 * 60 * 1000, s.lingerTimeoutMs);
     s.randomMessageLength = cp.getOption(optRandLen).isPresent();
     s.progress = cp.getOption(optProgress).isPresent();
+
     return s;
 }
 
@@ -89,7 +91,7 @@ void printRate(double messagesPerSec, double bytesPerSec, long totalFragments, l
     if (printingActive)
     {
         std::printf(
-            "%.02g msgs/sec, %.02g bytes/sec, totals %ld messages %ld MB payloads\n",
+            "%.04g msgs/sec, %.04g bytes/sec, totals %ld messages %ld MB payloads\n",
             messagesPerSec, bytesPerSec, totalFragments, totalBytes / (1024 * 1024));
     }
 }
@@ -121,15 +123,15 @@ on_new_length_t composeLengthGenerator(bool random, int max)
 int main(int argc, char **argv)
 {
     CommandOptionParser cp;
-    cp.addOption(CommandOption (optHelp,     0, 0, "                Displays help information."));
-    cp.addOption(CommandOption (optRandLen,  0, 0, "                Random Message Length."));
-    cp.addOption(CommandOption (optProgress, 0, 0, "                Print rate progress while sending."));
-    cp.addOption(CommandOption (optPrefix,   1, 1, "dir             Prefix directory for aeron driver."));
-    cp.addOption(CommandOption (optChannel,  1, 1, "channel         Channel."));
-    cp.addOption(CommandOption (optStreamId, 1, 1, "streamId        Stream ID."));
-    cp.addOption(CommandOption (optMessages, 1, 1, "number          Number of Messages."));
-    cp.addOption(CommandOption (optLength,   1, 1, "length          Length of Messages."));
-    cp.addOption(CommandOption (optLinger,   1, 1, "milliseconds    Linger timeout in milliseconds."));
+    cp.addOption(CommandOption(optHelp,     0, 0, "                Displays help information."));
+    cp.addOption(CommandOption(optRandLen,  0, 0, "                Random Message Length."));
+    cp.addOption(CommandOption(optProgress, 0, 0, "                Print rate progress while sending."));
+    cp.addOption(CommandOption(optPrefix,   1, 1, "dir             Prefix directory for aeron driver."));
+    cp.addOption(CommandOption(optChannel,  1, 1, "channel         Channel."));
+    cp.addOption(CommandOption(optStreamId, 1, 1, "streamId        Stream ID."));
+    cp.addOption(CommandOption(optMessages, 1, 1, "number          Number of Messages."));
+    cp.addOption(CommandOption(optLength,   1, 1, "length          Length of Messages."));
+    cp.addOption(CommandOption(optLinger,   1, 1, "milliseconds    Linger timeout in milliseconds."));
 
     signal (SIGINT, sigIntHandler);
 
@@ -145,7 +147,7 @@ int main(int argc, char **argv)
 
         aeron::Context context;
 
-        if (settings.dirPrefix != "")
+        if (!settings.dirPrefix.empty())
         {
             context.aeronDir(settings.dirPrefix);
         }
@@ -158,11 +160,9 @@ int main(int argc, char **argv)
 
         Aeron aeron(context);
 
-        // add the publication to start the process
         std::int64_t id = aeron.addPublication(settings.channel, settings.streamId);
-
         std::shared_ptr<Publication> publication = aeron.findPublication(id);
-        // wait for the publication to be valid
+
         while (!publication)
         {
             std::this_thread::yield();
@@ -170,7 +170,9 @@ int main(int argc, char **argv)
         }
 
         std::unique_ptr<std::uint8_t[]> buffer(new std::uint8_t[settings.messageLength]);
-        concurrent::AtomicBuffer srcBuffer(buffer.get(), settings.messageLength);
+        concurrent::AtomicBuffer srcBuffer(buffer.get(), static_cast<size_t>(settings.messageLength));
+        srcBuffer.setMemory(0, settings.messageLength, 0);
+
         BusySpinIdleStrategy offerIdleStrategy;
         on_new_length_t lengthGenerator = composeLengthGenerator(settings.randomMessageLength, settings.messageLength);
         RateReporter rateReporter(std::chrono::seconds(1), printRate);
@@ -184,7 +186,6 @@ int main(int argc, char **argv)
         do
         {
             printingActive = true;
-
             long backPressureCount = 0;
 
             if (nullptr == rateReporterThread)
@@ -197,6 +198,7 @@ int main(int argc, char **argv)
                 const int length = lengthGenerator();
                 srcBuffer.putInt64(0, i);
 
+                offerIdleStrategy.reset();
                 while (publication->offer(srcBuffer, 0, length) < 0L)
                 {
                     backPressureCount++;

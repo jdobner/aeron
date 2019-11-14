@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -39,6 +39,25 @@ aeron_rb_write_result_t aeron_spsc_rb_write(
     const void *msg,
     size_t length)
 {
+    struct iovec vec[1];
+    vec[0].iov_len = length;
+    vec[0].iov_base = (void*) msg;
+
+    return aeron_spsc_rb_writev(ring_buffer, msg_type_id, vec, 1);
+}
+
+aeron_rb_write_result_t aeron_spsc_rb_writev(
+    volatile aeron_spsc_rb_t *ring_buffer,
+    int32_t msg_type_id,
+    const struct iovec* iov,
+    int iovcnt)
+{
+    size_t length = 0;
+    for (int i = 0; i < iovcnt; i++)
+    {
+        length += iov[i].iov_len;
+    }
+
     const size_t record_length = length + AERON_RB_RECORD_HEADER_LENGTH;
     const size_t required_capacity = AERON_ALIGN(record_length, AERON_RB_ALIGNMENT);
     const size_t mask = ring_buffer->capacity - 1;
@@ -94,18 +113,27 @@ aeron_rb_write_result_t aeron_spsc_rb_write(
         record_header = (aeron_rb_record_descriptor_t *)(ring_buffer->buffer + record_index);
 
         record_header->msg_type_id = AERON_RB_PADDING_MSG_TYPE_ID;
-        AERON_PUT_ORDERED(record_header->length, padding);
+        AERON_PUT_ORDERED(record_header->length, (int32_t)padding);
         record_index = 0;
     }
 
     record_header = (aeron_rb_record_descriptor_t *)(ring_buffer->buffer + record_index);
-    memcpy(ring_buffer->buffer + AERON_RB_MESSAGE_OFFSET(record_index), msg, length);
+
+    size_t current_vector_offset = 0;
+    for (int i = 0; i < iovcnt; i++)
+    {
+        uint8_t* offset = ring_buffer->buffer + AERON_RB_MESSAGE_OFFSET(record_index) + current_vector_offset;
+        memcpy(offset, iov[i].iov_base, iov[i].iov_len);
+        current_vector_offset += iov[i].iov_len;
+    }
+
     record_header->msg_type_id = msg_type_id;
-    AERON_PUT_ORDERED(record_header->length, record_length);
+    AERON_PUT_ORDERED(record_header->length, (int32_t)record_length);
     AERON_PUT_ORDERED(ring_buffer->descriptor->tail_position, tail + required_capacity + padding);
 
     return AERON_RB_SUCCESS;
 }
+
 
 size_t aeron_spsc_rb_read(
     volatile aeron_spsc_rb_t *ring_buffer,
@@ -148,7 +176,6 @@ size_t aeron_spsc_rb_read(
             ring_buffer->buffer + AERON_RB_MESSAGE_OFFSET(record_index),
             record_length - AERON_RB_RECORD_HEADER_LENGTH,
             clientd);
-
     }
 
     if (0 != bytes_read)
@@ -164,10 +191,11 @@ int64_t aeron_spsc_rb_next_correlation_id(volatile aeron_spsc_rb_t *ring_buffer)
 {
     int64_t result = 0;
     AERON_GET_AND_ADD_INT64(result, ring_buffer->descriptor->correlation_counter, 1);
+
     return result;
 }
 
-void aeron_spsc_rb_consumer_heartbeat_time(volatile aeron_spsc_rb_t *ring_buffer, int64_t time)
+void aeron_spsc_rb_consumer_heartbeat_time(volatile aeron_spsc_rb_t *ring_buffer, int64_t time_ms)
 {
-    AERON_PUT_ORDERED(ring_buffer->descriptor->consumer_heartbeat, time);
+    AERON_PUT_ORDERED(ring_buffer->descriptor->consumer_heartbeat, time_ms);
 }

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,25 +19,22 @@
 
 #include <string>
 
-namespace aeron { namespace samples {
-
-namespace configuration {
+namespace aeron { namespace samples { namespace configuration {
 
 const static std::string DEFAULT_CHANNEL = "aeron:udp?endpoint=localhost:40123";
 const static std::string DEFAULT_PING_CHANNEL = "aeron:udp?endpoint=localhost:40123";
 const static std::string DEFAULT_PONG_CHANNEL = "aeron:udp?endpoint=localhost:40124";
 const static std::int32_t DEFAULT_STREAM_ID = 10;
 const static std::int32_t DEFAULT_PING_STREAM_ID = 10;
-const static std::int32_t DEFAULT_PONG_STREAM_ID = 10;
-const static long DEFAULT_NUMBER_OF_MESSAGES = 1000000;
-const static int DEFAULT_MESSAGE_LENGTH = 256;
+const static std::int32_t DEFAULT_PONG_STREAM_ID = 11;
+const static long DEFAULT_NUMBER_OF_WARM_UP_MESSAGES = 100000;
+const static long DEFAULT_NUMBER_OF_MESSAGES = 10000000;
+const static int DEFAULT_MESSAGE_LENGTH = 32;
 const static int DEFAULT_LINGER_TIMEOUT_MS = 0;
 const static int DEFAULT_FRAGMENT_COUNT_LIMIT = 10;
 const static bool DEFAULT_RANDOM_MESSAGE_LENGTH = false;
 const static bool DEFAULT_PUBLICATION_RATE_PROGRESS = false;
 
-}
-
-}}
+}}}
 
 #endif

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,6 +23,7 @@ import io.aeron.logbuffer.Header;
 import org.agrona.DirectBuffer;
 import org.agrona.IoUtil;
 import org.agrona.LangUtil;
+import org.agrona.SystemUtil;
 import org.agrona.collections.Long2ObjectHashMap;
 import org.agrona.concurrent.IdleStrategy;
 import org.agrona.concurrent.SigInt;
@@ -136,7 +137,7 @@ public class FileReceiver
         }
         else
         {
-            storageDir = new File(IoUtil.tmpDirName());
+            storageDir = new File(SystemUtil.tmpDirName());
         }
 
         System.out.println("Files stored to " + storageDir.getAbsolutePath());
@@ -149,7 +150,7 @@ public class FileReceiver
             Aeron aeron = Aeron.connect();
             Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID))
         {
-            System.out.println("Receiving from " + CHANNEL + " on stream Id " + STREAM_ID);
+            System.out.println("Receiving from " + CHANNEL + " on stream id " + STREAM_ID);
             final FileReceiver fileReceiver = new FileReceiver(storageDir, subscription);
 
             while (running.get())

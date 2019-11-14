@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,19 +16,19 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <signal.h>
-#include <util/CommandOptionParser.h>
 #include <thread>
-#include "Configuration.h"
-#include <Aeron.h>
 #include <array>
+#include <signal.h>
+#include "util/CommandOptionParser.h"
+#include "Configuration.h"
+#include "Aeron.h"
 
 using namespace aeron::util;
 using namespace aeron;
 
 std::atomic<bool> running (true);
 
-void sigIntHandler (int param)
+void sigIntHandler(int param)
 {
     running = false;
 }
@@ -45,8 +45,8 @@ struct Settings
     std::string dirPrefix = "";
     std::string channel = samples::configuration::DEFAULT_CHANNEL;
     std::int32_t streamId = samples::configuration::DEFAULT_STREAM_ID;
-    int numberOfMessages = samples::configuration::DEFAULT_NUMBER_OF_MESSAGES;
-    int lingerTimeoutMs = samples::configuration::DEFAULT_LINGER_TIMEOUT_MS;
+    long numberOfMessages = samples::configuration::DEFAULT_NUMBER_OF_MESSAGES;
+    long lingerTimeoutMs = samples::configuration::DEFAULT_LINGER_TIMEOUT_MS;
 };
 
 typedef std::array<std::uint8_t, 256> buffer_t;
@@ -74,12 +74,12 @@ Settings parseCmdLine(CommandOptionParser& cp, int argc, char** argv)
 int main(int argc, char** argv)
 {
     CommandOptionParser cp;
-    cp.addOption(CommandOption (optHelp,     0, 0, "                Displays help information."));
-    cp.addOption(CommandOption (optPrefix,   1, 1, "dir             Prefix directory for aeron driver."));
-    cp.addOption(CommandOption (optChannel,  1, 1, "channel         Channel."));
-    cp.addOption(CommandOption (optStreamId, 1, 1, "streamId        Stream ID."));
-    cp.addOption(CommandOption (optMessages, 1, 1, "number          Number of Messages."));
-    cp.addOption(CommandOption (optLinger,   1, 1, "milliseconds    Linger timeout in milliseconds."));
+    cp.addOption(CommandOption(optHelp,     0, 0, "                Displays help information."));
+    cp.addOption(CommandOption(optPrefix,   1, 1, "dir             Prefix directory for aeron driver."));
+    cp.addOption(CommandOption(optChannel,  1, 1, "channel         Channel."));
+    cp.addOption(CommandOption(optStreamId, 1, 1, "streamId        Stream ID."));
+    cp.addOption(CommandOption(optMessages, 1, 1, "number          Number of Messages."));
+    cp.addOption(CommandOption(optLinger,   1, 1, "milliseconds    Linger timeout in milliseconds."));
 
     signal (SIGINT, sigIntHandler);
 
@@ -91,7 +91,7 @@ int main(int argc, char** argv)
 
         aeron::Context context;
 
-        if (settings.dirPrefix != "")
+        if (!settings.dirPrefix.empty())
         {
             context.aeronDir(settings.dirPrefix);
         }
@@ -118,7 +118,7 @@ int main(int argc, char** argv)
         const std::int64_t channelStatus = publication->channelStatus();
 
         std::cout << "Publication channel status (id=" << publication->channelStatusId() << ") "
-            << ((channelStatus == ChannelEndpointStatus::CHANNEL_ENDPOINT_ACTIVE) ?
+            << (channelStatus == ChannelEndpointStatus::CHANNEL_ENDPOINT_ACTIVE ?
                 "ACTIVE" : std::to_string(channelStatus))
             << std::endl;
 
@@ -126,12 +126,12 @@ int main(int argc, char** argv)
         concurrent::AtomicBuffer srcBuffer(&buffer[0], buffer.size());
         char message[256];
 
-        for (int i = 0; i < settings.numberOfMessages && running; i++)
+        for (long i = 0; i < settings.numberOfMessages && running; i++)
         {
 #if _MSC_VER
-            const int messageLen = ::sprintf_s(message, sizeof(message), "Hello World! %d", i);
+            const int messageLen = ::sprintf_s(message, sizeof(message), "Hello World! %ld", i);
 #else
-            const int messageLen = ::snprintf(message, sizeof(message), "Hello World! %d", i);
+            const int messageLen = ::snprintf(message, sizeof(message), "Hello World! %ld", i);
 #endif
 
             srcBuffer.putBytes(0, reinterpret_cast<std::uint8_t *>(message), messageLen);

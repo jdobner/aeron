@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,7 +30,7 @@ import static io.aeron.driver.status.SystemCounterDescriptor.BYTES_SENT;
 class SenderLhsPadding
 {
     @SuppressWarnings("unused")
-    protected long p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15;
+    protected long p1, p2, p3, p4, p5, p6, p7;
 }
 
 class SenderHotFields extends SenderLhsPadding
@@ -43,7 +43,7 @@ class SenderHotFields extends SenderLhsPadding
 class SenderRhsPadding extends SenderHotFields
 {
     @SuppressWarnings("unused")
-    protected long p16, p17, p18, p19, p20, p21, p22, p23, p24, p25, p26, p27, p28, p29, p30;
+    protected long p1, p2, p3, p4, p5, p6, p7;
 }
 
 /**
@@ -69,8 +69,8 @@ public class Sender extends SenderRhsPadding implements Agent
         this.commandQueue = ctx.senderCommandQueue();
         this.totalBytesSent = ctx.systemCounters().get(BYTES_SENT);
         this.nanoClock = ctx.cachedNanoClock();
-        this.statusMessageReadTimeoutNs = ctx.statusMessageTimeoutNs() / 2;
-        this.dutyCycleRatio = Configuration.sendToStatusMessagePollRatio();
+        this.statusMessageReadTimeoutNs = ctx.statusMessageTimeoutNs() >> 1;
+        this.dutyCycleRatio = ctx.sendToStatusMessagePollRatio();
         this.conductorProxy = ctx.driverConductorProxy();
     }
 
@@ -86,7 +86,7 @@ public class Sender extends SenderRhsPadding implements Agent
         final int bytesSent = doSend(nowNs);
 
         int bytesReceived = 0;
-        if (0 == bytesSent || ++dutyCycleCounter == dutyCycleRatio || (controlPollDeadlineNs - nowNs < 0))
+        if (0 == bytesSent || ++dutyCycleCounter >= dutyCycleRatio || (controlPollDeadlineNs - nowNs < 0))
         {
             bytesReceived = controlTransportPoller.pollTransports();
 

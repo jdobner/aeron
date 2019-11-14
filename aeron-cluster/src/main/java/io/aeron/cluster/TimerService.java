@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,65 +20,80 @@ import org.agrona.collections.Long2LongHashMap;
 
 import java.util.concurrent.TimeUnit;
 
-import static io.aeron.cluster.ConsensusModule.Configuration.TIMER_POLL_LIMIT;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-
 class TimerService implements DeadlineTimerWheel.TimerHandler
 {
-    private static final int MAX_ITERATIONS_PER_POLL = 10_000_000;
+    private static final int POLL_LIMIT = 20;
 
+    private boolean isAbort;
     private final ConsensusModuleAgent consensusModuleAgent;
-    private final DeadlineTimerWheel timerWheel = new DeadlineTimerWheel(MILLISECONDS, 0, 1, 128);
+    private final DeadlineTimerWheel timerWheel;
     private final Long2LongHashMap timerIdByCorrelationIdMap = new Long2LongHashMap(Long.MAX_VALUE);
     private final Long2LongHashMap correlationIdByTimerIdMap = new Long2LongHashMap(Long.MAX_VALUE);
 
-    TimerService(final ConsensusModuleAgent consensusModuleAgent)
+    TimerService(
+        final ConsensusModuleAgent consensusModuleAgent,
+        final TimeUnit timeUnit,
+        final long startTime,
+        final long tickResolution,
+        final int ticksPerWheel)
     {
         this.consensusModuleAgent = consensusModuleAgent;
+        timerWheel = new DeadlineTimerWheel(timeUnit, startTime, tickResolution, ticksPerWheel);
     }
 
-    int poll(final long nowMs)
+    int poll(final long now)
     {
         int expired = 0;
-        int iterations = 0;
+        isAbort = false;
 
         do
         {
-            expired += timerWheel.poll(nowMs, this, TIMER_POLL_LIMIT);
+            expired += timerWheel.poll(now, this, POLL_LIMIT);
+
+            if (isAbort)
+            {
+                break;
+            }
         }
-        while (expired < TIMER_POLL_LIMIT && currentTickTimeMs() < nowMs && ++iterations < MAX_ITERATIONS_PER_POLL);
+        while (expired < POLL_LIMIT && timerWheel.currentTickTime() < now);
 
         return expired;
     }
 
-    long timerCount()
-    {
-        return timerWheel.timerCount();
-    }
-
-    long currentTickTimeMs()
+    long currentTickTime()
     {
         return timerWheel.currentTickTime();
     }
 
-    void resetStartTime(final long startTime)
+    void currentTickTime(final long timestamp)
     {
-        timerWheel.resetStartTime(startTime);
+        timerWheel.currentTickTime(timestamp);
     }
 
     public boolean onTimerExpiry(final TimeUnit timeUnit, final long now, final long timerId)
     {
-        final long correlationId = correlationIdByTimerIdMap.remove(timerId);
-        timerIdByCorrelationIdMap.remove(correlationId);
+        final long correlationId = correlationIdByTimerIdMap.get(timerId);
 
-        return consensusModuleAgent.onTimerEvent(correlationId, now);
+        if (consensusModuleAgent.onTimerEvent(correlationId))
+        {
+            correlationIdByTimerIdMap.remove(timerId);
+            timerIdByCorrelationIdMap.remove(correlationId);
+
+            return true;
+        }
+        else
+        {
+            isAbort = true;
+
+            return false;
+        }
     }
 
-    void scheduleTimer(final long correlationId, final long deadlineMs)
+    void scheduleTimer(final long correlationId, final long deadline)
     {
         cancelTimer(correlationId);
 
-        final long timerId = timerWheel.scheduleTimer(deadlineMs);
+        final long timerId = timerWheel.scheduleTimer(deadline);
         timerIdByCorrelationIdMap.put(correlationId, timerId);
         correlationIdByTimerIdMap.put(timerId, correlationId);
     }

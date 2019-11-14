@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -170,7 +170,7 @@ public:
     {
         const int numMaxPayloads = length / maxPayloadLength;
         const util::index_t remainingPayload = length % maxPayloadLength;
-        const util::index_t lastFrameLength = (remainingPayload > 0) ?
+        const util::index_t lastFrameLength = remainingPayload > 0 ?
             util::BitUtil::align(remainingPayload + DataFrameHeader::LENGTH, FrameDescriptor::FRAME_ALIGNMENT) : 0;
         const util::index_t requiredLength =
             (numMaxPayloads * (maxPayloadLength + DataFrameHeader::LENGTH)) + lastFrameLength;

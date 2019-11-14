@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,7 +22,7 @@ import io.aeron.logbuffer.BufferClaim;
 import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.Header;
 import org.agrona.DirectBuffer;
-import org.agrona.concurrent.NoOpIdleStrategy;
+import org.agrona.concurrent.IdleStrategy;
 import org.agrona.concurrent.SigInt;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,6 +31,9 @@ import java.util.concurrent.locks.LockSupport;
 import static org.agrona.SystemUtil.loadPropertiesFiles;
 import static org.agrona.UnsafeAccess.UNSAFE;
 
+/**
+ * Throughput test using {@link ExclusivePublication#tryClaim(int, BufferClaim)} over UDP transport.
+ */
 public class EmbeddedBufferClaimIpcThroughput
 {
     public static final int BURST_LENGTH = 1_000_000;
@@ -47,13 +50,12 @@ public class EmbeddedBufferClaimIpcThroughput
         SigInt.register(() -> running.set(false));
 
         final MediaDriver.Context ctx = new MediaDriver.Context()
-            .threadingMode(ThreadingMode.SHARED)
-            .sharedIdleStrategy(new NoOpIdleStrategy());
+            .threadingMode(ThreadingMode.SHARED);
 
         try (MediaDriver ignore = MediaDriver.launch(ctx);
             Aeron aeron = Aeron.connect();
-            Publication publication = aeron.addPublication(CHANNEL, STREAM_ID);
-            Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID))
+            Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID);
+            Publication publication = aeron.addPublication(CHANNEL, STREAM_ID))
         {
             final Subscriber subscriber = new Subscriber(running, subscription);
             final Thread subscriberThread = new Thread(subscriber);
@@ -86,24 +88,24 @@ public class EmbeddedBufferClaimIpcThroughput
 
         public void run()
         {
-            long lastTimeStamp = System.currentTimeMillis();
+            long lastTimestampMs = System.currentTimeMillis();
             long lastTotalBytes = subscriber.totalBytes();
 
             while (running.get())
             {
                 LockSupport.parkNanos(1_000_000_000);
 
-                final long newTimeStamp = System.currentTimeMillis();
+                final long newTimestampMs = System.currentTimeMillis();
                 final long newTotalBytes = subscriber.totalBytes();
 
-                final long duration = newTimeStamp - lastTimeStamp;
+                final long durationMs = newTimestampMs - lastTimestampMs;
                 final long bytesTransferred = newTotalBytes - lastTotalBytes;
 
                 System.out.format(
                     "Duration %dms - %,d messages - %,d payload bytes%n",
-                    duration, bytesTransferred / MESSAGE_LENGTH, bytesTransferred);
+                    durationMs, bytesTransferred / MESSAGE_LENGTH, bytesTransferred);
 
-                lastTimeStamp = newTimeStamp;
+                lastTimestampMs = newTimestampMs;
                 lastTotalBytes = newTotalBytes;
             }
         }
@@ -122,6 +124,7 @@ public class EmbeddedBufferClaimIpcThroughput
 
         public void run()
         {
+            final IdleStrategy idleStrategy = SampleConfiguration.newIdleStrategy();
             final Publication publication = this.publication;
             final BufferClaim bufferClaim = new BufferClaim();
             long backPressureCount = 0;
@@ -132,6 +135,7 @@ public class EmbeddedBufferClaimIpcThroughput
             {
                 for (int i = 0; i < BURST_LENGTH; i++)
                 {
+                    idleStrategy.reset();
                     while (publication.tryClaim(MESSAGE_LENGTH, bufferClaim) <= 0)
                     {
                         ++backPressureCount;
@@ -139,6 +143,7 @@ public class EmbeddedBufferClaimIpcThroughput
                         {
                             break outputResults;
                         }
+                        idleStrategy.idle();
                     }
 
                     final int offset = bufferClaim.offset();
@@ -195,6 +200,7 @@ public class EmbeddedBufferClaimIpcThroughput
                 Thread.yield();
             }
 
+            final IdleStrategy idleStrategy = SampleConfiguration.newIdleStrategy();
             final Image image = subscription.images().get(0);
 
             long failedPolls = 0;
@@ -211,6 +217,8 @@ public class EmbeddedBufferClaimIpcThroughput
                 {
                     ++successfulPolls;
                 }
+
+                idleStrategy.idle(fragmentsRead);
             }
 
             final double failureRatio = failedPolls / (double)(successfulPolls + failedPolls);

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -47,9 +47,7 @@ public class ControlResponseAdapter implements FragmentHandler
      * @param fragmentLimit to apply for each polling operation.
      */
     public ControlResponseAdapter(
-        final ControlResponseListener listener,
-        final Subscription subscription,
-        final int fragmentLimit)
+        final ControlResponseListener listener, final Subscription subscription, final int fragmentLimit)
     {
         this.fragmentLimit = fragmentLimit;
         this.listener = listener;
@@ -57,7 +55,7 @@ public class ControlResponseAdapter implements FragmentHandler
     }
 
     /**
-     * Poll for recording events and dispatch them to the {@link RecordingEventsListener} for this instance.
+     * Poll for recording events and dispatch them to the {@link ControlResponseListener} for this instance.
      *
      * @return the number of fragments read during the operation. Zero if no events are available.
      */
@@ -102,6 +100,12 @@ public class ControlResponseAdapter implements FragmentHandler
     {
         messageHeaderDecoder.wrap(buffer, offset);
 
+        final int schemaId = messageHeaderDecoder.schemaId();
+        if (schemaId != MessageHeaderDecoder.SCHEMA_ID)
+        {
+            throw new ArchiveException("expected schemaId=" + MessageHeaderDecoder.SCHEMA_ID + ", actual=" + schemaId);
+        }
+
         final int templateId = messageHeaderDecoder.templateId();
         switch (templateId)
         {
@@ -112,16 +116,11 @@ public class ControlResponseAdapter implements FragmentHandler
             case RecordingDescriptorDecoder.TEMPLATE_ID:
                 handleRecordingDescriptor(listener, buffer, offset);
                 break;
-
-            default:
-                throw new ArchiveException("unknown templateId: " + templateId);
         }
     }
 
     private void handleControlResponse(
-        final ControlResponseListener listener,
-        final DirectBuffer buffer,
-        final int offset)
+        final ControlResponseListener listener, final DirectBuffer buffer, final int offset)
     {
         controlResponseDecoder.wrap(
             buffer,
@@ -138,9 +137,7 @@ public class ControlResponseAdapter implements FragmentHandler
     }
 
     private void handleRecordingDescriptor(
-        final ControlResponseListener listener,
-        final DirectBuffer buffer,
-        final int offset)
+        final ControlResponseListener listener, final DirectBuffer buffer, final int offset)
     {
         recordingDescriptorDecoder.wrap(
             buffer,

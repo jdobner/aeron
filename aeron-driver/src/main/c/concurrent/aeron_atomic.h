@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,12 +21,8 @@
 
 #include <stdint.h>
 
-#if defined(AERON_COMPILER_GCC)
-    #if defined(AERON_CPU_X64)
-        #include <concurrent/aeron_atomic64_gcc_x86_64.h>
-    #else
-        #include <concurrent/aeron_atomic64_gcc_c11.h>
-    #endif
+#if defined(AERON_COMPILER_GCC) && defined(AERON_CPU_X64)
+    #include <concurrent/aeron_atomic64_gcc_x86_64.h>
 #elif defined(AERON_COMPILER_MSVC) && defined(AERON_CPU_X64)
     #include <concurrent/aeron_atomic64_msvc.h>
 #else

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,7 +29,7 @@ import org.junit.runner.RunWith;
 
 import java.nio.ByteBuffer;
 
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 @RunWith(Theories.class)
@@ -52,6 +52,7 @@ public class ExclusivePublicationTest
 
     private final MediaDriver driver = MediaDriver.launch(new MediaDriver.Context()
         .errorHandler(Throwable::printStackTrace)
+        .dirDeleteOnShutdown(true)
         .threadingMode(ThreadingMode.SHARED));
 
     private final Aeron aeron = Aeron.connect();
@@ -61,7 +62,6 @@ public class ExclusivePublicationTest
     {
         CloseHelper.close(aeron);
         CloseHelper.close(driver);
-        driver.context().deleteAeronDirectory();
     }
 
     @Theory
@@ -74,8 +74,8 @@ public class ExclusivePublicationTest
         {
             while (subscription.imageCount() < 2)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final int expectedNumberOfFragments = 778;
@@ -100,8 +100,8 @@ public class ExclusivePublicationTest
 
                 if (0 == fragmentsRead)
                 {
-                    SystemTest.checkInterruptedStatus();
                     Thread.yield();
+                    SystemTest.checkInterruptedStatus();
                 }
 
                 totalFragmentsRead += fragmentsRead;
@@ -116,8 +116,8 @@ public class ExclusivePublicationTest
     {
         while (publication.offer(srcBuffer, 0, MESSAGE_LENGTH) < 0L)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
     }
 }

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,25 +15,17 @@
  */
 package io.aeron.samples;
 
-import io.aeron.CncFileDescriptor;
-import io.aeron.CommonContext;
-import io.aeron.driver.status.StreamPositionCounter;
-import org.agrona.DirectBuffer;
-import org.agrona.IoUtil;
 import org.agrona.concurrent.status.CountersReader;
 
-import java.io.File;
 import java.io.PrintStream;
-import java.nio.MappedByteBuffer;
 import java.util.*;
 
-import static io.aeron.CncFileDescriptor.*;
 import static io.aeron.driver.status.PerImageIndicator.PER_IMAGE_TYPE_ID;
 import static io.aeron.driver.status.PublisherLimit.PUBLISHER_LIMIT_TYPE_ID;
 import static io.aeron.driver.status.PublisherPos.PUBLISHER_POS_TYPE_ID;
 import static io.aeron.driver.status.ReceiverPos.RECEIVER_POS_TYPE_ID;
 import static io.aeron.driver.status.SenderLimit.SENDER_LIMIT_TYPE_ID;
-import static io.aeron.driver.status.StreamPositionCounter.*;
+import static io.aeron.driver.status.StreamCounter.*;
 
 /**
  * Tool for taking a snapshot of Aeron streams and relevant position counters.
@@ -42,7 +34,7 @@ import static io.aeron.driver.status.StreamPositionCounter.*;
  * output per stream with each of the position counters for that stream.
  * <p>
  * Each counter has the format:
- * {@code <label-name>:<registration id>:<position value>}
+ * {@code <label-name>:<registration-id>:<position value>}
  */
 public class StreamStat
 {
@@ -50,29 +42,10 @@ public class StreamStat
 
     public static void main(final String[] args)
     {
-        final CountersReader counters = mapCounters();
+        final CountersReader counters = SamplesUtil.mapCounters();
         final StreamStat streamStat = new StreamStat(counters);
 
         streamStat.print(System.out);
-    }
-
-    public static CountersReader mapCounters()
-    {
-        final File cncFile = CommonContext.newDefaultCncFile();
-        System.out.println("Command `n Control file " + cncFile);
-
-        final MappedByteBuffer cncByteBuffer = IoUtil.mapExistingFile(cncFile, "cnc");
-        final DirectBuffer cncMetaData = createMetaDataBuffer(cncByteBuffer);
-        final int cncVersion = cncMetaData.getInt(cncVersionOffset(0));
-
-        if (CncFileDescriptor.CNC_VERSION != cncVersion)
-        {
-            throw new IllegalStateException("CnC version not supported: file version=" + cncVersion);
-        }
-
-        return new CountersReader(
-            createCountersMetaDataBuffer(cncByteBuffer, cncMetaData),
-            createCountersValuesBuffer(cncByteBuffer, cncMetaData));
     }
 
     public StreamStat(final CountersReader counters)
@@ -105,9 +78,7 @@ public class StreamStat
                         counters.getCounterValue(counterId),
                         typeId);
 
-                    streams
-                        .computeIfAbsent(key, (ignore) -> new ArrayList<>())
-                        .add(position);
+                    streams.computeIfAbsent(key, (ignore) -> new ArrayList<>()).add(position);
                 }
             });
 
@@ -142,7 +113,7 @@ public class StreamStat
             {
                 builder
                     .append(' ')
-                    .append(StreamPositionCounter.labelName(streamPosition.typeId()))
+                    .append(labelName(streamPosition.typeId()))
                     .append(':').append(streamPosition.id())
                     .append(':').append(streamPosition.value());
             }
@@ -241,9 +212,9 @@ public class StreamStat
         }
 
         /**
-         * The identifier for the counter when registered.
+         * The identifier for the registered entity, such as publication or subscription, to which the counter relates.
          *
-         * @return the identifier for the counter when registered.
+         * @return the identifier for the registered entity to which the counter relates.
          */
         public long id()
         {
@@ -285,7 +256,6 @@ public class StreamStat
             final StreamPosition that = (StreamPosition)o;
 
             return this.id == that.id && this.value == that.value && this.typeId == that.typeId;
-
         }
 
         public int hashCode()
@@ -306,5 +276,4 @@ public class StreamStat
                 '}';
         }
     }
-
 }

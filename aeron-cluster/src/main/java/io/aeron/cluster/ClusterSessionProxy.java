@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,7 +19,6 @@ import io.aeron.cluster.codecs.EventCode;
 import io.aeron.security.SessionProxy;
 
 import static io.aeron.cluster.ClusterSession.State.CHALLENGED;
-import static io.aeron.cluster.ClusterSession.State.REJECTED;
 
 /**
  * Proxy for a session being authenticated by an {@link io.aeron.security.Authenticator}.
@@ -75,7 +74,13 @@ class ClusterSessionProxy implements SessionProxy
     {
         ClusterSession.checkEncodedPrincipalLength(encodedPrincipal);
 
-        if (egressPublisher.sendEvent(clusterSession, leadershipTermId, leaderMemberId, EventCode.OK, EMPTY_DETAIL))
+        if (clusterSession.isBackupQuery())
+        {
+            clusterSession.authenticate(encodedPrincipal);
+            return true;
+        }
+        else if (egressPublisher.sendEvent(
+            clusterSession, leadershipTermId, leaderMemberId, EventCode.OK, EMPTY_DETAIL))
         {
             clusterSession.authenticate(encodedPrincipal);
             return true;
@@ -86,6 +91,6 @@ class ClusterSessionProxy implements SessionProxy
 
     public final void reject()
     {
-        clusterSession.state(REJECTED);
+        clusterSession.reject(EventCode.AUTHENTICATION_REJECTED, ConsensusModule.Configuration.SESSION_REJECTED_MSG);
     }
 }

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,7 +19,7 @@
 #define _GNU_SOURCE
 #endif
 
-#include <sys/socket.h>
+#include <aeron_socket.h>
 #include <stdio.h>
 
 #if !defined(HAVE_STRUCT_MMSGHDR)
@@ -41,7 +41,8 @@ int aeron_driver_sender_init(
     aeron_system_counters_t *system_counters,
     aeron_distinct_error_log_t *error_log)
 {
-    if (aeron_udp_transport_poller_init(&sender->poller) < 0)
+    if (context->udp_channel_transport_bindings->poller_init_func(
+        &sender->poller, context, AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_SENDER) < 0)
     {
         return -1;
     }
@@ -66,6 +67,8 @@ int aeron_driver_sender_init(
     }
 
     sender->context = context;
+    sender->poller_poll_func = context->udp_channel_transport_bindings->poller_poll_func;
+    sender->recvmmsg_func = context->udp_channel_transport_bindings->recvmmsg_func;
     sender->error_log = error_log;
     sender->sender_proxy.sender = sender;
     sender->sender_proxy.command_queue = &context->sender_command_queue;
@@ -112,16 +115,16 @@ int aeron_driver_sender_do_work(void *clientd)
     aeron_driver_sender_t *sender = (aeron_driver_sender_t *)clientd;
     int work_count = 0;
 
-    work_count +=
-        aeron_spsc_concurrent_array_queue_drain(
-            sender->sender_proxy.command_queue, aeron_driver_sender_on_command, sender, 10);
+    work_count += aeron_spsc_concurrent_array_queue_drain(
+        sender->sender_proxy.command_queue, aeron_driver_sender_on_command, sender, 10);
 
     int64_t now_ns = sender->context->nano_clock();
+    int64_t bytes_received = 0;
     int bytes_sent = aeron_driver_sender_do_send(sender, now_ns);
     int poll_result;
 
     if (0 == bytes_sent ||
-        ++sender->duty_cycle_counter == sender->duty_cycle_ratio ||
+        ++sender->duty_cycle_counter >= sender->duty_cycle_ratio ||
         now_ns > sender->control_poll_timeout_ns)
     {
         struct mmsghdr mmsghdr[AERON_DRIVER_SENDER_NUM_RECV_BUFFERS];
@@ -138,11 +141,13 @@ int aeron_driver_sender_do_work(void *clientd)
             mmsghdr[i].msg_len = 0;
         }
 
-        poll_result = aeron_udp_transport_poller_poll(
+        poll_result = sender->poller_poll_func(
             &sender->poller,
             mmsghdr,
             AERON_DRIVER_SENDER_NUM_RECV_BUFFERS,
+            &bytes_received,
             aeron_send_channel_endpoint_dispatch,
+            sender->recvmmsg_func,
             sender);
 
         if (poll_result < 0)
@@ -168,7 +173,7 @@ void aeron_driver_sender_on_close(void *clientd)
         aeron_free(sender->recv_buffers.buffers[i]);
     }
 
-    aeron_udp_transport_poller_close(&sender->poller);
+    sender->context->udp_channel_transport_bindings->poller_close_func(&sender->poller);
     aeron_free(sender->network_publications.array);
 }
 
@@ -178,7 +183,7 @@ void aeron_driver_sender_on_add_endpoint(void *clientd, void *command)
     aeron_command_base_t *cmd = (aeron_command_base_t *)command;
     aeron_send_channel_endpoint_t *endpoint = (aeron_send_channel_endpoint_t *)cmd->item;
 
-    if (aeron_udp_transport_poller_add(&sender->poller, &endpoint->transport) < 0)
+    if (sender->context->udp_channel_transport_bindings->poller_add_func(&sender->poller, &endpoint->transport) < 0)
     {
         AERON_DRIVER_SENDER_ERROR(sender, "sender on_add_endpoint: %s", aeron_errmsg());
     }
@@ -190,7 +195,7 @@ void aeron_driver_sender_on_remove_endpoint(void *clientd, void *command)
     aeron_command_base_t *cmd = (aeron_command_base_t *)command;
     aeron_send_channel_endpoint_t *endpoint = (aeron_send_channel_endpoint_t *)cmd->item;
 
-    if (aeron_udp_transport_poller_remove(&sender->poller, &endpoint->transport) < 0)
+    if (sender->context->udp_channel_transport_bindings->poller_remove_func(&sender->poller, &endpoint->transport) < 0)
     {
         AERON_DRIVER_SENDER_ERROR(sender, "sender on_remove_endpoint: %s", aeron_errmsg());
     }

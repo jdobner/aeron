@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -33,9 +33,9 @@ interface MemberStatusListener
 
     void onNewLeadershipTerm(
         long logLeadershipTermId,
-        long logPosition,
         long leadershipTermId,
-        long maxLogPosition,
+        long logPosition,
+        long timestamp,
         int leaderMemberId,
         int logSessionId);
 
@@ -45,7 +45,7 @@ interface MemberStatusListener
 
     void onCatchupPosition(long leadershipTermId, long logPosition, int followerMemberId);
 
-    void onStopCatchup(long leadershiptTermId, long logPosition, int followerMemberId);
+    void onStopCatchup(long leadershipTermId, long logPosition, int followerMemberId);
 
     void onAddPassiveMember(long correlationId, String memberEndpoints);
 
@@ -60,4 +60,7 @@ interface MemberStatusListener
     void onTerminationPosition(long logPosition);
 
     void onTerminationAck(long logPosition, int memberId);
+
+    void onBackupQuery(
+        long correlationId, int responseStreamId, int version, String responseChannel, byte[] credentials);
 }

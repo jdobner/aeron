@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,7 +27,27 @@
 #include <stdio.h>
 #include <time.h>
 #include <fcntl.h>
+
+#include "util/aeron_platform.h"
+#include "aeron_windows.h"
+#if defined(AERON_COMPILER_MSVC) && defined(AERON_CPU_X64)
+
+    #include <io.h>
+    #include <direct.h>
+    #include <process.h>
+    #include <WinSock2.h>
+    #include <Windows.h>
+
+    #define S_IRWXU 0
+    int mkdir(const char *path, int permission)
+    {
+        return _mkdir(path);
+    }
+
+#else
 #include <unistd.h>
+#endif
+
 #include <inttypes.h>
 #include <stdlib.h>
 #include "util/aeron_error.h"
@@ -36,6 +56,53 @@
 #include "util/aeron_strutil.h"
 #include "util/aeron_fileutil.h"
 #include "aeron_driver.h"
+#include "aeron_socket.h"
+#include "util/aeron_dlopen.h"
+
+const char aeron_version_full_str[] = "aeron version " AERON_VERSION_TXT " built " __DATE__ " " __TIME__;
+int aeron_major_version = AERON_VERSION_MAJOR;
+int aeron_minor_version = AERON_VERSION_MINOR;
+int aeron_patch_version = AERON_VERSION_PATCH;
+
+const char *aeron_version_full()
+{
+    return aeron_version_full_str;
+}
+
+int aeron_version_major()
+{
+    return aeron_major_version;
+}
+
+int aeron_version_minor()
+{
+    return aeron_minor_version;
+}
+
+int aeron_version_patch()
+{
+    return aeron_patch_version;
+}
+
+int32_t aeron_semantic_version_compose(uint8_t major, uint8_t minor, uint8_t patch)
+{
+    return (major << 16) | (minor << 8) | patch;
+}
+
+uint8_t aeron_semantic_version_major(int32_t version)
+{
+    return (uint8_t)((version >> 16) & 0xFF);
+}
+
+uint8_t aeron_semantic_version_minor(int32_t version)
+{
+    return (uint8_t)((version >> 8) & 0xFF);
+}
+
+uint8_t aeron_semantic_version_patch(int32_t version)
+{
+    return (uint8_t)(version & 0xFF);
+}
 
 void aeron_log_func_stderr(const char *str)
 {
@@ -49,8 +116,13 @@ void aeron_log_func_none(const char *str)
 int64_t aeron_nano_clock()
 {
     struct timespec ts;
-#if defined(__CYGWIN__)
+#if defined(__CYGWIN__) || defined(__linux__)
     if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0)
+    {
+        return -1;
+    }
+#elif defined(AERON_COMPILER_MSVC)
+    if (aeron_clock_gettime_monotonic(&ts) < 0)
     {
         return -1;
     }
@@ -67,10 +139,21 @@ int64_t aeron_nano_clock()
 int64_t aeron_epoch_clock()
 {
     struct timespec ts;
-    if (clock_gettime(CLOCK_REALTIME, &ts) < 0)
+#if defined(AERON_COMPILER_MSVC)
+    if (aeron_clock_gettime_realtime(&ts) < 0)
     {
         return -1;
     }
+#else
+#if defined(CLOCK_REALTIME_COARSE)
+    if (clock_gettime(CLOCK_REALTIME_COARSE, &ts) < 0)
+#else
+    if (clock_gettime(CLOCK_REALTIME, &ts) < 0)
+#endif
+    {
+        return -1;
+    }
+#endif
 
     return (ts.tv_sec * 1000) + (ts.tv_nsec / 1000000);
 }
@@ -107,6 +190,8 @@ int32_t aeron_randomised_int32()
         exit(EXIT_FAILURE);
     }
 
+#else
+    result = rand() * INT_MAX;
 #endif
     return result;
 }
@@ -142,7 +227,7 @@ int aeron_report_existing_errors(aeron_mapped_file_t *cnc_map, const char *aeron
 
     aeron_cnc_metadata_t *metadata = (aeron_cnc_metadata_t *)cnc_map->addr;
 
-    if (AERON_CNC_VERSION == metadata->cnc_version &&
+    if (aeron_semantic_version_major(AERON_CNC_VERSION) == aeron_semantic_version_major(metadata->cnc_version) &&
         aeron_error_log_exists(aeron_cnc_error_log_buffer(cnc_map->addr), (size_t)metadata->error_log_buffer_length))
     {
         char datestamp[AERON_MAX_PATH];
@@ -179,12 +264,11 @@ int aeron_report_existing_errors(aeron_mapped_file_t *cnc_map, const char *aeron
 
 int aeron_driver_ensure_dir_is_recreated(aeron_driver_t *driver)
 {
-    struct stat sb;
     char buffer[AERON_MAX_PATH];
     const char *dirname = driver->context->aeron_dir;
     aeron_log_func_t log_func = aeron_log_func_none;
 
-    if (stat(dirname, &sb) == 0 && S_ISDIR(sb.st_mode))
+    if (aeron_is_directory(dirname))
     {
         if (driver->context->warn_if_dirs_exist)
         {
@@ -195,7 +279,7 @@ int aeron_driver_ensure_dir_is_recreated(aeron_driver_t *driver)
 
         if (driver->context->dirs_delete_on_start)
         {
-            aeron_dir_delete(driver->context->aeron_dir);
+            aeron_delete_directory(driver->context->aeron_dir);
         }
         else
         {
@@ -226,7 +310,7 @@ int aeron_driver_ensure_dir_is_recreated(aeron_driver_t *driver)
             }
 
             aeron_unmap(&cnc_mmap);
-            aeron_dir_delete(driver->context->aeron_dir);
+            aeron_delete_directory(driver->context->aeron_dir);
         }
     }
 
@@ -261,7 +345,8 @@ void aeron_driver_fill_cnc_metadata(aeron_driver_context_t *context)
     aeron_cnc_metadata_t *metadata = (aeron_cnc_metadata_t *)context->cnc_map.addr;
     metadata->to_driver_buffer_length = (int32_t)context->to_driver_buffer_length;
     metadata->to_clients_buffer_length = (int32_t)context->to_clients_buffer_length;
-    metadata->counter_metadata_buffer_length = (int32_t)context->counters_metadata_buffer_length;
+    metadata->counter_metadata_buffer_length =
+        (int32_t)(AERON_COUNTERS_METADATA_BUFFER_LENGTH(context->counters_values_buffer_length));
     metadata->counter_values_buffer_length = (int32_t)context->counters_values_buffer_length;
     metadata->error_log_buffer_length = (int32_t)context->error_buffer_length;
     metadata->client_liveness_timeout = (int64_t)context->client_liveness_timeout_ns;
@@ -319,7 +404,7 @@ int aeron_driver_validate_sufficient_socket_buffer_lengths(aeron_driver_t *drive
 {
     int result = -1, probe_fd;
 
-    if ((probe_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+    if ((probe_fd = aeron_socket(AF_INET, SOCK_DGRAM, 0)) < 0)
     {
         int errcode = errno;
 
@@ -443,7 +528,7 @@ int aeron_driver_validate_sufficient_socket_buffer_lengths(aeron_driver_t *drive
     result = 0;
 
     cleanup:
-        close(probe_fd);
+        aeron_close_socket(probe_fd);
 
     return result;
 }
@@ -478,6 +563,137 @@ int aeron_driver_validate_page_size(aeron_driver_t *driver)
     }
 
     return 0;
+}
+
+void aeron_driver_context_print_configuration(aeron_driver_context_t *context)
+{
+    FILE *fpout = stdout;
+    char buffer[1024];
+
+    fprintf(fpout, "aeron_driver_context_t {");
+    fprintf(fpout, "\n    cnc_version=%d.%d.%d",
+        (int)aeron_semantic_version_major(AERON_CNC_VERSION),
+        (int)aeron_semantic_version_minor(AERON_CNC_VERSION),
+        (int)aeron_semantic_version_patch(AERON_CNC_VERSION));
+    fprintf(fpout, "\n    aeron_dir=%s", context->aeron_dir);
+    fprintf(fpout, "\n    driver_timeout_ms=%" PRIu64, context->driver_timeout_ms);
+    fprintf(fpout, "\n    print_configuration_on_start=%d", context->print_configuration_on_start);
+    fprintf(fpout, "\n    dirs_delete_on_start=%d", context->dirs_delete_on_start);
+    fprintf(fpout, "\n    dirs_delete_on_shutdown=%d", context->dirs_delete_on_shutdown);
+    fprintf(fpout, "\n    warn_if_dirs_exists=%d", context->warn_if_dirs_exist);
+    fprintf(fpout, "\n    term_buffer_sparse_file=%d", context->term_buffer_sparse_file);
+    fprintf(fpout, "\n    perform_storage_checks=%d", context->perform_storage_checks);
+    fprintf(fpout, "\n    spies_simulate_connection=%d", context->spies_simulate_connection);
+    fprintf(fpout, "\n    reliable_stream=%d", context->reliable_stream);
+    fprintf(fpout, "\n    tether_subscriptions=%d", context->tether_subscriptions);
+    fprintf(fpout, "\n    rejoin_stream=%d", context->rejoin_stream);
+    fprintf(fpout, "\n    receiver_group_consideration=%d", context->receiver_group_consideration);
+    fprintf(fpout, "\n    to_driver_buffer_length=%" PRIu64, (uint64_t)context->to_driver_buffer_length);
+    fprintf(fpout, "\n    to_clients_buffer_length=%" PRIu64, (uint64_t)context->to_clients_buffer_length);
+    fprintf(fpout, "\n    counters_values_buffer_length=%" PRIu64, (uint64_t)context->counters_values_buffer_length);
+    fprintf(fpout, "\n    error_buffer_length=%" PRIu64, (uint64_t)context->error_buffer_length);
+    fprintf(fpout, "\n    timer_interval_ns=%" PRIu64, context->timer_interval_ns);
+    fprintf(fpout, "\n    client_liveness_timeout_ns=%" PRIu64, context->client_liveness_timeout_ns);
+    fprintf(fpout, "\n    image_liveness_timeout_ns=%" PRIu64, context->image_liveness_timeout_ns);
+    fprintf(fpout, "\n    publication_unblock_timeout_ns=%" PRIu64, context->publication_unblock_timeout_ns);
+    fprintf(fpout, "\n    publication_connection_timeout_ns=%" PRIu64, context->publication_connection_timeout_ns);
+    fprintf(fpout, "\n    publication_linger_timeout_ns=%" PRIu64, context->publication_linger_timeout_ns);
+    fprintf(fpout, "\n    untethered_window_limit_timeout_ns=%" PRIu64, context->untethered_window_limit_timeout_ns);
+    fprintf(fpout, "\n    untethered_resting_timeout_ns=%" PRIu64, context->untethered_resting_timeout_ns);
+    fprintf(fpout, "\n    retransmit_unicast_delay_ns=%" PRIu64, context->retransmit_unicast_delay_ns);
+    fprintf(fpout, "\n    retransmit_unicast_linger_ns=%" PRIu64, context->retransmit_unicast_linger_ns);
+    fprintf(fpout, "\n    nak_unicast_delay_ns=%" PRIu64, context->nak_unicast_delay_ns);
+    fprintf(fpout, "\n    nak_multicast_max_backoff_ns=%" PRIu64, context->nak_multicast_max_backoff_ns);
+    fprintf(fpout, "\n    nak_multicast_group_size=%" PRIu64, (uint64_t)context->nak_multicast_group_size);
+    fprintf(fpout, "\n    status_message_timeout_ns=%" PRIu64, context->status_message_timeout_ns);
+    fprintf(fpout, "\n    counter_free_to_reuse_ns=%" PRIu64, context->counter_free_to_reuse_ns);
+    fprintf(fpout, "\n    term_buffer_length=%" PRIu64, (uint64_t)context->term_buffer_length);
+    fprintf(fpout, "\n    ipc_term_buffer_length=%" PRIu64, (uint64_t)context->ipc_term_buffer_length);
+    fprintf(fpout, "\n    publication_window_length=%" PRIu64, (uint64_t)context->publication_window_length);
+    fprintf(fpout, "\n    ipc_publication_window_length=%" PRIu64, (uint64_t)context->ipc_publication_window_length);
+    fprintf(fpout, "\n    initial_window_length=%" PRIu64, (uint64_t)context->initial_window_length);
+    fprintf(fpout, "\n    socket_sndbuf=%" PRIu64, (uint64_t)context->socket_sndbuf);
+    fprintf(fpout, "\n    socket_rcvbuf=%" PRIu64, (uint64_t)context->socket_rcvbuf);
+    fprintf(fpout, "\n    multicast_ttl=%" PRIu8, context->multicast_ttl);
+    fprintf(fpout, "\n    mtu_length=%" PRIu64, (uint64_t)context->mtu_length);
+    fprintf(fpout, "\n    ipc_mtu_length=%" PRIu64, (uint64_t)context->ipc_mtu_length);
+    fprintf(fpout, "\n    file_page_size=%" PRIu64, (uint64_t)context->file_page_size);
+    /* publicationReservedSessionIdLow */
+    /* publicationReservedSessionIdHigh */
+    fprintf(fpout, "\n    loss_report_length=%" PRIu64, (uint64_t)context->loss_report_length);
+    fprintf(fpout, "\n    send_to_sm_poll_ratio=%" PRIu64, (uint64_t)context->send_to_sm_poll_ratio);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+
+    fprintf(fpout, "\n    epoch_clock=%p%s",
+        (void *)context->epoch_clock,
+        aeron_dlinfo((const void *)context->epoch_clock, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    nano_clock=%p%s",
+        (void *)context->nano_clock,
+        aeron_dlinfo((const void *)context->nano_clock, buffer, sizeof(buffer)));
+    /* cachedEpochClock */
+    /* cachedNanoClock */
+    fprintf(fpout, "\n    threading_mode=%d", context->threading_mode);
+    fprintf(fpout, "\n    agent_on_start_func=%p%s",
+        (void *)context->agent_on_start_func,
+        aeron_dlinfo((const void *)context->agent_on_start_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    agent_on_start_state=%p", context->agent_on_start_state);
+    fprintf(fpout, "\n    conductor_idle_strategy_func=%p%s",
+        (void *)context->conductor_idle_strategy_func,
+        aeron_dlinfo((const void *)context->conductor_idle_strategy_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    conductor_idle_strategy_init_args=%p%s",
+        (void *)context->conductor_idle_strategy_init_args,
+        context->conductor_idle_strategy_init_args ? context->conductor_idle_strategy_init_args : "");
+    fprintf(fpout, "\n    sender_idle_strategy_func=%p%s",
+        (void *)context->sender_idle_strategy_func,
+        aeron_dlinfo((const void *)context->sender_idle_strategy_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    sender_idle_strategy_init_args=%p%s",
+        (void *)context->sender_idle_strategy_init_args,
+        context->sender_idle_strategy_init_args ? context->sender_idle_strategy_init_args : "");
+    fprintf(fpout, "\n    receiver_idle_strategy_func=%p%s",
+        (void *)context->receiver_idle_strategy_func,
+        aeron_dlinfo((const void *)context->receiver_idle_strategy_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    receiver_idle_strategy_init_args=%p%s",
+        (void *)context->receiver_idle_strategy_init_args,
+        context->receiver_idle_strategy_init_args ? context->receiver_idle_strategy_init_args : "");
+    fprintf(fpout, "\n    shared_network_idle_strategy_func=%p%s",
+        (void *)context->shared_network_idle_strategy_func,
+        aeron_dlinfo((const void *)context->shared_network_idle_strategy_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    shared_network_idle_strategy_init_args=%p%s",
+        (void *)context->shared_network_idle_strategy_init_args,
+        context->shared_network_idle_strategy_init_args ? context->shared_network_idle_strategy_init_args : "");
+    fprintf(fpout, "\n    shared_idle_strategy_func=%p%s",
+        (void *)context->shared_idle_strategy_func,
+        aeron_dlinfo((const void *)context->shared_idle_strategy_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    shared_idle_strategy_init_args=%p%s",
+        (void *)context->shared_idle_strategy_init_args,
+        context->shared_idle_strategy_init_args ? context->shared_idle_strategy_init_args : "");
+    fprintf(fpout, "\n    unicast_flow_control_supplier_func=%p%s",
+        (void *)context->unicast_flow_control_supplier_func,
+        aeron_dlinfo((const void *)context->unicast_flow_control_supplier_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    multicast_flow_control_supplier_func=%p%s",
+        (void *)context->multicast_flow_control_supplier_func,
+        aeron_dlinfo((const void *)context->multicast_flow_control_supplier_func, buffer, sizeof(buffer)));
+    /* applicationSpecificFeedback */
+    fprintf(fpout, "\n    congestion_control_supplier_func=%p%s",
+        (void *)context->congestion_control_supplier_func,
+        aeron_dlinfo((const void *)context->congestion_control_supplier_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    usable_fs_space_func=%p%s",
+        (void *)context->usable_fs_space_func,
+        aeron_dlinfo((const void *)context->usable_fs_space_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    termination_validator_func=%p%s",
+        (void *)context->termination_validator_func,
+        aeron_dlinfo((const void *)context->termination_validator_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    termination_validator_state=%p", context->termination_validator_state);
+    fprintf(fpout, "\n    termination_hook_func=%p%s",
+        (void *)context->termination_hook_func,
+        aeron_dlinfo((const void *)context->termination_hook_func, buffer, sizeof(buffer)));
+    fprintf(fpout, "\n    termination_hook_state=%p", context->termination_hook_state);
+
+#pragma GCC diagnostic pop
+
+    fprintf(fpout, "\n}\n");
 }
 
 int aeron_driver_shared_do_work(void *clientd)
@@ -613,8 +829,34 @@ int aeron_driver_init(aeron_driver_t **driver, aeron_driver_context_t *context)
     aeron_mpsc_rb_consumer_heartbeat_time(&_driver->conductor.to_driver_commands, aeron_epoch_clock());
     aeron_cnc_version_signal_cnc_ready((aeron_cnc_metadata_t *)context->cnc_map.addr, AERON_CNC_VERSION);
 
+    if (aeron_feedback_delay_state_init(
+        &_driver->context->unicast_delay_feedback_generator,
+        aeron_loss_detector_nak_multicast_delay_generator,
+        _driver->context->nak_unicast_delay_ns,
+        1,
+        true) < 0)
+    {
+        goto error;
+    }
+
+    if (aeron_feedback_delay_state_init(
+        &_driver->context->multicast_delay_feedback_generator,
+        aeron_loss_detector_nak_unicast_delay_generator,
+        _driver->context->nak_multicast_max_backoff_ns,
+        _driver->context->nak_multicast_group_size,
+        false) < 0)
+    {
+        goto error;
+    }
+
+    if (_driver->context->print_configuration_on_start)
+    {
+        aeron_driver_context_print_configuration(_driver->context);
+    }
+
     switch (_driver->context->threading_mode)
     {
+        case AERON_THREADING_MODE_INVOKER:
         case AERON_THREADING_MODE_SHARED:
             if (aeron_agent_init(
                 &_driver->runners[AERON_AGENT_RUNNER_SHARED],
@@ -731,6 +973,13 @@ int aeron_driver_start(aeron_driver_t *driver, bool manual_main_loop)
 
     if (!manual_main_loop)
     {
+        if (AERON_THREADING_MODE_INVOKER == driver->context->threading_mode)
+        {
+            errno = EINVAL;
+            aeron_set_err(EINVAL, "aeron_driver_start: %s", "INVOKER threading mode requires manual_main_loop");
+            return -1;
+        }
+
         if (aeron_agent_start(&driver->runners[0]) < 0)
         {
             return -1;
@@ -809,6 +1058,20 @@ int aeron_driver_close(aeron_driver_t *driver)
         }
     }
 
+    if (driver->context->dirs_delete_on_shutdown)
+    {
+        aeron_delete_directory(driver->context->aeron_dir);
+    }
+
     aeron_free(driver);
+
     return 0;
 }
+
+extern int32_t aeron_semantic_version_compose(uint8_t major, uint8_t minor, uint8_t patch);
+
+extern uint8_t aeron_semantic_version_major(int32_t version);
+
+extern uint8_t aeron_semantic_version_minor(int32_t version);
+
+extern uint8_t aeron_semantic_version_patch(int32_t version);

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,7 +26,7 @@ import java.util.function.Consumer;
 class SubscriptionLhsPadding
 {
     @SuppressWarnings("unused")
-    protected long p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15;
+    protected long p1, p2, p3, p4, p5, p6, p7;
 }
 
 class SubscriptionFields extends SubscriptionLhsPadding
@@ -34,8 +34,8 @@ class SubscriptionFields extends SubscriptionLhsPadding
     protected static final Image[] EMPTY_ARRAY = new Image[0];
 
     protected final long registrationId;
-    protected int roundRobinIndex = 0;
     protected final int streamId;
+    protected int roundRobinIndex = 0;
     protected volatile boolean isClosed = false;
     protected volatile Image[] images = EMPTY_ARRAY;
     protected final ClientConductor conductor;
@@ -84,7 +84,7 @@ class SubscriptionFields extends SubscriptionLhsPadding
 public class Subscription extends SubscriptionFields implements AutoCloseable
 {
     @SuppressWarnings("unused")
-    protected long p16, p17, p18, p19, p20, p21, p22, p23, p24, p25, p26, p27, p28, p29, p30;
+    protected long p1, p2, p3, p4, p5, p6, p7;
 
     Subscription(
         final ClientConductor conductor,
@@ -154,30 +154,6 @@ public class Subscription extends SubscriptionFields implements AutoCloseable
     }
 
     /**
-     * Poll the {@link Image}s under the subscription for having reached End of Stream (EOS). This method will miss
-     * {@link Image}s that have gone unavailable between calls unless using the {@link Aeron#conductorAgentInvoker()}.
-     *
-     * @param endOfStreamHandler callback for handling end of stream indication.
-     * @return number of {@link Image} that have reached End of Stream.
-     */
-    @Deprecated
-    public int pollEndOfStreams(final EndOfStreamHandler endOfStreamHandler)
-    {
-        int eosCount = 0;
-
-        for (final Image image : images)
-        {
-            if (image.isEndOfStream())
-            {
-                eosCount++;
-                endOfStreamHandler.onEndOfStream(image);
-            }
-        }
-
-        return eosCount;
-    }
-
-    /**
      * Poll the {@link Image}s under the subscription for available message fragments.
      * <p>
      * Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come
@@ -186,7 +162,7 @@ public class Subscription extends SubscriptionFields implements AutoCloseable
      * To assemble messages that span multiple fragments then use {@link FragmentAssembler}.
      *
      * @param fragmentHandler callback for handling each message fragment as it is read.
-     * @param fragmentLimit   number of message fragments to limit for the poll operation across multiple {@link Image}s.
+     * @param fragmentLimit   number of message fragments to limit when polling across multiple {@link Image}s.
      * @return the number of fragments received
      */
     public int poll(final FragmentHandler fragmentHandler, final int fragmentLimit)
@@ -225,7 +201,7 @@ public class Subscription extends SubscriptionFields implements AutoCloseable
      * To assemble messages that span multiple fragments then use {@link ControlledFragmentAssembler}.
      *
      * @param fragmentHandler callback for handling each message fragment as it is read.
-     * @param fragmentLimit   number of message fragments to limit for the poll operation across multiple {@link Image}s.
+     * @param fragmentLimit   number of message fragments to limit when polling across multiple {@link Image}s.
      * @return the number of fragments received
      * @see ControlledFragmentHandler
      */
@@ -435,7 +411,7 @@ public class Subscription extends SubscriptionFields implements AutoCloseable
     /**
      * Add a destination manually to a multi-destination Subscription.
      *
-     * @param endpointChannel for the destination to add
+     * @param endpointChannel for the destination to add.
      */
     public void addDestination(final String endpointChannel)
     {
@@ -450,7 +426,7 @@ public class Subscription extends SubscriptionFields implements AutoCloseable
     /**
      * Remove a previously added destination from a multi-destination Subscription.
      *
-     * @param endpointChannel for the destination to remove
+     * @param endpointChannel for the destination to remove.
      */
     public void removeDestination(final String endpointChannel)
     {
@@ -460,6 +436,44 @@ public class Subscription extends SubscriptionFields implements AutoCloseable
         }
 
         conductor.removeRcvDestination(registrationId, endpointChannel);
+    }
+
+    /**
+     * Asynchronously add a destination manually to a multi-destination Subscription.
+     * <p>
+     * Errors will be delivered asynchronously to the {@link Aeron.Context#errorHandler()}. Completion can be
+     * tracked by passing the returned correlation id to {@link Aeron#isCommandActive(long)}.
+     *
+     * @param endpointChannel for the destination to add.
+     * @return the correlationId for the command.
+     */
+    public long asyncAddDestination(final String endpointChannel)
+    {
+        if (isClosed)
+        {
+            throw new AeronException("Subscription is closed");
+        }
+
+        return conductor.asyncAddRcvDestination(registrationId, endpointChannel);
+    }
+
+    /**
+     * Asynchronously remove a previously added destination from a multi-destination Subscription.
+     * <p>
+     * Errors will be delivered asynchronously to the {@link Aeron.Context#errorHandler()}. Completion can be
+     * tracked by passing the returned correlation id to {@link Aeron#isCommandActive(long)}.
+     *
+     * @param endpointChannel for the destination to remove.
+     * @return the correlationId for the command.
+     */
+    public long asyncRemoveDestination(final String endpointChannel)
+    {
+        if (isClosed)
+        {
+            throw new AeronException("Subscription is closed");
+        }
+
+        return conductor.asyncRemoveRcvDestination(registrationId, endpointChannel);
     }
 
     void channelStatusId(final int id)
@@ -475,7 +489,10 @@ public class Subscription extends SubscriptionFields implements AutoCloseable
     void internalClose()
     {
         isClosed = true;
-        closeImages();
+        final Image[] images = this.images;
+        this.images = EMPTY_ARRAY;
+
+        conductor.closeImages(images, unavailableImageHandler);
     }
 
     void addImage(final Image image)
@@ -493,7 +510,6 @@ public class Subscription extends SubscriptionFields implements AutoCloseable
         {
             if (image.correlationId() == correlationId)
             {
-                image.close();
                 removedImage = image;
                 break;
             }
@@ -504,37 +520,21 @@ public class Subscription extends SubscriptionFields implements AutoCloseable
         if (null != removedImage)
         {
             images = ArrayUtil.remove(oldArray, i);
+            removedImage.close();
             conductor.releaseLogBuffers(removedImage.logBuffers(), correlationId);
         }
 
         return removedImage;
     }
 
-    private void closeImages()
+    public String toString()
     {
-        final Image[] images = this.images;
-        this.images = EMPTY_ARRAY;
-
-        for (final Image image : images)
-        {
-            image.close();
-        }
-
-        for (final Image image : images)
-        {
-            conductor.releaseLogBuffers(image.logBuffers(), image.correlationId());
-
-            try
-            {
-                if (null != unavailableImageHandler)
-                {
-                    unavailableImageHandler.onUnavailableImage(image);
-                }
-            }
-            catch (final Throwable ex)
-            {
-                conductor.handleError(ex);
-            }
-        }
+        return "Subscription{" +
+            "registrationId=" + registrationId +
+            ", isClosed=" + isClosed +
+            ", streamId=" + streamId +
+            ", channel='" + channel + '\'' +
+            ", imageCount=" + imageCount() +
+            '}';
     }
 }

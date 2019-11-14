@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,6 +16,7 @@
 package io.aeron.archive;
 
 import io.aeron.Image;
+import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.client.ArchiveException;
 import io.aeron.logbuffer.BlockHandler;
 import io.aeron.protocol.DataHeaderFlyweight;
@@ -53,8 +54,8 @@ class RecordingWriter implements BlockHandler
     private final FileChannel archiveDirChannel;
     private final File archiveDir;
 
+    private long segmentPosition;
     private int segmentOffset;
-    private int segmentIndex;
     private FileChannel recordingFileChannel;
 
     private boolean isClosed = false;
@@ -78,7 +79,8 @@ class RecordingWriter implements BlockHandler
         final long joinPosition = image.joinPosition();
         final long startTermBasePosition = startPosition - (startPosition & (image.termBufferLength() - 1));
         segmentOffset = (int)(joinPosition - startTermBasePosition) & (segmentLength - 1);
-        segmentIndex = Archive.segmentFileIndex(startPosition, joinPosition, segmentLength);
+        segmentPosition = AeronArchive.segmentFileBasePosition(
+            startPosition, joinPosition, image.termBufferLength(), segmentLength);
     }
 
     public void onBlock(
@@ -114,8 +116,6 @@ class RecordingWriter implements BlockHandler
         }
         catch (final ClosedByInterruptException ex)
         {
-            //noinspection ResultOfMethodCallIgnored
-            Thread.interrupted();
             close();
             throw new ArchiveException("file closed by interrupt, recording aborted", ex, ArchiveException.GENERIC);
         }
@@ -130,8 +130,8 @@ class RecordingWriter implements BlockHandler
     {
         if (!isClosed)
         {
-            CloseHelper.close(recordingFileChannel);
             isClosed = true;
+            CloseHelper.quietClose(recordingFileChannel);
         }
     }
 
@@ -152,7 +152,7 @@ class RecordingWriter implements BlockHandler
 
     private void openRecordingSegmentFile()
     {
-        final File file = new File(archiveDir, Archive.segmentFileName(recordingId, segmentIndex));
+        final File file = new File(archiveDir, Archive.segmentFileName(recordingId, segmentPosition));
 
         RandomAccessFile recordingFile = null;
         try
@@ -177,7 +177,7 @@ class RecordingWriter implements BlockHandler
     {
         CloseHelper.close(recordingFileChannel);
         segmentOffset = 0;
-        segmentIndex++;
+        segmentPosition += segmentLength;
 
         openRecordingSegmentFile();
     }

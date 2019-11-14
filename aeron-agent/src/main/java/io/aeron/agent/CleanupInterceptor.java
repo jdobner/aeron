@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,7 +20,7 @@ import io.aeron.driver.NetworkPublication;
 import io.aeron.driver.PublicationImage;
 import net.bytebuddy.asm.Advice;
 
-import static io.aeron.agent.EventLogger.LOGGER;
+import static io.aeron.agent.DriverEventLogger.LOGGER;
 
 /**
  * Intercepts calls in the driver to log the clean up of major resources.

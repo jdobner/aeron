@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,6 +26,9 @@ public interface FragmentHandler
 {
     /**
      * Callback for handling fragments of data being read from a log.
+     * <p>
+     * Within this callback reentrant calls to the {@link io.aeron.Aeron} client are not permitted and
+     * will result in undefined behaviour.
      *
      * @param buffer containing the data.
      * @param offset at which the data begins.

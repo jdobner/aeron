@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -53,10 +53,17 @@ struct ErrorResponseDefn
 };
 #pragma pack(pop)
 
+static const std::int32_t ERROR_CODE_UNKNOWN_CODE_VALUE = -1;
+
 static const std::int32_t ERROR_CODE_GENERIC_ERROR = 0;
 static const std::int32_t ERROR_CODE_INVALID_CHANNEL = 1;
 static const std::int32_t ERROR_CODE_UNKNOWN_SUBSCRIPTION = 2;
 static const std::int32_t ERROR_CODE_UNKNOWN_PUBLICATION = 3;
+static const std::int32_t ERROR_CODE_CHANNEL_ENDPOINT_ERROR = 4;
+static const std::int32_t ERROR_CODE_UNKNOWN_COUNTER = 5;
+static const std::int32_t ERROR_CODE_UNKNOWN_COMMAND_TYPE_ID = 6;
+static const std::int32_t ERROR_CODE_MALFORMED_COMMAND = 7;
+static const std::int32_t ERROR_CODE_NOT_SUPPORTED = 8;
 
 class ErrorResponseFlyweight : public Flyweight<ErrorResponseDefn>
 {

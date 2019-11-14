@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
-#include <sched.h>
 #include "concurrent/aeron_counters_manager.h"
 #include "aeron_driver_conductor_proxy.h"
 #include "aeron_alloc.h"
+#include "concurrent/aeron_thread.h"
 #include "aeron_driver_conductor.h"
 
 void aeron_driver_conductor_proxy_offer(aeron_driver_conductor_proxy_t *conductor_proxy, void *cmd)
@@ -32,7 +32,7 @@ void aeron_driver_conductor_proxy_offer(aeron_driver_conductor_proxy_t *conducto
 void aeron_driver_conductor_proxy_on_delete_cmd(
     aeron_driver_conductor_proxy_t *conductor_proxy, aeron_command_base_t *cmd)
 {
-    if (AERON_THREADING_MODE_SHARED == conductor_proxy->threading_mode)
+    if (AERON_THREADING_MODE_IS_SHARED_OR_INVOKER(conductor_proxy->threading_mode))
     {
         /* should not get here! */
     }
@@ -58,7 +58,7 @@ void aeron_driver_conductor_proxy_on_create_publication_image_cmd(
     struct sockaddr_storage *src_address,
     void *endpoint)
 {
-    if (AERON_THREADING_MODE_SHARED == conductor_proxy->threading_mode)
+    if (AERON_THREADING_MODE_IS_SHARED_OR_INVOKER(conductor_proxy->threading_mode))
     {
         aeron_command_create_publication_image_t cmd =
             {
@@ -109,7 +109,7 @@ void aeron_driver_conductor_proxy_on_create_publication_image_cmd(
 void aeron_driver_conductor_proxy_on_linger_buffer(
     aeron_driver_conductor_proxy_t *conductor_proxy, uint8_t *buffer)
 {
-    if (AERON_THREADING_MODE_SHARED == conductor_proxy->threading_mode)
+    if (AERON_THREADING_MODE_IS_SHARED_OR_INVOKER(conductor_proxy->threading_mode))
     {
         aeron_free(buffer);
     }

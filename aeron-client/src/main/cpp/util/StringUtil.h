@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -41,7 +41,25 @@ inline std::string trimWSRight(std::string str, const char* wschars = " \t")
 
 inline std::string trimWSBoth(std::string str, const char* wschars = " \t")
 {
-    return trimWSLeft(trimWSRight(str, wschars), wschars);
+    return trimWSLeft(trimWSRight(std::move(str), wschars), wschars);
+}
+
+inline bool startsWith(const std::string& input, std::size_t position, const std::string& prefix)
+{
+    if ((input.length() - position) < prefix.length())
+    {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < prefix.length(); i++)
+    {
+        if (input[position + i] != prefix[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 template<class valueType>

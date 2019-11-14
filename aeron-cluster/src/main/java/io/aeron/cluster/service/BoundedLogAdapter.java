@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,12 +17,11 @@ package io.aeron.cluster.service;
 
 import io.aeron.Image;
 import io.aeron.ImageControlledFragmentAssembler;
+import io.aeron.cluster.client.*;
 import io.aeron.cluster.codecs.*;
-import io.aeron.logbuffer.ControlledFragmentHandler;
-import io.aeron.logbuffer.Header;
+import io.aeron.logbuffer.*;
 import io.aeron.status.ReadableCounter;
-import org.agrona.CloseHelper;
-import org.agrona.DirectBuffer;
+import org.agrona.*;
 
 /**
  * Adapter for reading a log with a upper bound applied beyond which the consumer cannot progress.
@@ -31,15 +30,13 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
 {
     private static final int FRAGMENT_LIMIT = 100;
     private static final int INITIAL_BUFFER_LENGTH = 4096;
-    private static final int SESSION_HEADER_LENGTH =
-        MessageHeaderEncoder.ENCODED_LENGTH + SessionHeaderEncoder.BLOCK_LENGTH;
 
     private final ImageControlledFragmentAssembler fragmentAssembler = new ImageControlledFragmentAssembler(
         this, INITIAL_BUFFER_LENGTH, true);
     private final MessageHeaderDecoder messageHeaderDecoder = new MessageHeaderDecoder();
     private final SessionOpenEventDecoder openEventDecoder = new SessionOpenEventDecoder();
     private final SessionCloseEventDecoder closeEventDecoder = new SessionCloseEventDecoder();
-    private final SessionHeaderDecoder sessionHeaderDecoder = new SessionHeaderDecoder();
+    private final SessionMessageHeaderDecoder sessionHeaderDecoder = new SessionMessageHeaderDecoder();
     private final TimerEventDecoder timerEventDecoder = new TimerEventDecoder();
     private final ClusterActionRequestDecoder actionRequestDecoder = new ClusterActionRequestDecoder();
     private final NewLeadershipTermEventDecoder newLeadershipTermEventDecoder = new NewLeadershipTermEventDecoder();
@@ -80,9 +77,15 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
     public Action onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
         messageHeaderDecoder.wrap(buffer, offset);
-        final int templateId = messageHeaderDecoder.templateId();
 
-        if (templateId == SessionHeaderDecoder.TEMPLATE_ID)
+        final int schemaId = messageHeaderDecoder.schemaId();
+        if (schemaId != MessageHeaderDecoder.SCHEMA_ID)
+        {
+            throw new ClusterException("expected schemaId=" + MessageHeaderDecoder.SCHEMA_ID + ", actual=" + schemaId);
+        }
+
+        final int templateId = messageHeaderDecoder.templateId();
+        if (templateId == SessionMessageHeaderDecoder.TEMPLATE_ID)
         {
             sessionHeaderDecoder.wrap(
                 buffer,
@@ -91,11 +94,12 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
                 messageHeaderDecoder.version());
 
             agent.onSessionMessage(
+                header.position(),
                 sessionHeaderDecoder.clusterSessionId(),
                 sessionHeaderDecoder.timestamp(),
                 buffer,
-                offset + SESSION_HEADER_LENGTH,
-                length - SESSION_HEADER_LENGTH,
+                offset + AeronCluster.SESSION_HEADER_LENGTH,
+                length - AeronCluster.SESSION_HEADER_LENGTH,
                 header);
 
             return Action.CONTINUE;
@@ -110,7 +114,10 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
                     messageHeaderDecoder.blockLength(),
                     messageHeaderDecoder.version());
 
-                agent.onTimerEvent(timerEventDecoder.correlationId(), timerEventDecoder.timestamp());
+                agent.onTimerEvent(
+                    header.position(),
+                    timerEventDecoder.correlationId(),
+                    timerEventDecoder.timestamp());
                 break;
 
             case SessionOpenEventDecoder.TEMPLATE_ID:
@@ -125,6 +132,8 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
                 openEventDecoder.getEncodedPrincipal(encodedPrincipal, 0, encodedPrincipal.length);
 
                 agent.onSessionOpen(
+                    openEventDecoder.leadershipTermId(),
+                    header.position(),
                     openEventDecoder.clusterSessionId(),
                     openEventDecoder.timestamp(),
                     openEventDecoder.responseStreamId(),
@@ -140,6 +149,8 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
                     messageHeaderDecoder.version());
 
                 agent.onSessionClose(
+                    closeEventDecoder.leadershipTermId(),
+                    header.position(),
                     closeEventDecoder.clusterSessionId(),
                     closeEventDecoder.timestamp(),
                     closeEventDecoder.closeReason());
@@ -153,8 +164,8 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
                     messageHeaderDecoder.version());
 
                 agent.onServiceAction(
-                    actionRequestDecoder.logPosition(),
                     actionRequestDecoder.leadershipTermId(),
+                    actionRequestDecoder.logPosition(),
                     actionRequestDecoder.timestamp(),
                     actionRequestDecoder.action());
                 break;
@@ -170,8 +181,11 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
                     newLeadershipTermEventDecoder.leadershipTermId(),
                     newLeadershipTermEventDecoder.logPosition(),
                     newLeadershipTermEventDecoder.timestamp(),
+                    newLeadershipTermEventDecoder.termBaseLogPosition(),
                     newLeadershipTermEventDecoder.leaderMemberId(),
-                    newLeadershipTermEventDecoder.logSessionId());
+                    newLeadershipTermEventDecoder.logSessionId(),
+                    ClusterClock.map(newLeadershipTermEventDecoder.timeUnit()),
+                    newLeadershipTermEventDecoder.appVersion());
                 break;
 
             case MembershipChangeEventDecoder.TEMPLATE_ID:

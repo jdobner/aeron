@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,7 +30,7 @@ using namespace std::placeholders;
 #define LOG_META_DATA_LENGTH (LogBufferDescriptor::LOG_META_DATA_LENGTH)
 #define SRC_BUFFER_LENGTH 1024
 
-static_assert(LogBufferDescriptor::PARTITION_COUNT==3, "partition count assumed to be 3 for these test");
+static_assert(LogBufferDescriptor::PARTITION_COUNT == 3, "partition count assumed to be 3 for these test");
 
 typedef std::array<std::uint8_t, ((TERM_LENGTH * 3) + LOG_META_DATA_LENGTH)> term_buffer_t;
 typedef std::array<std::uint8_t, SRC_BUFFER_LENGTH> src_buffer_t;

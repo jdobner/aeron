@@ -5,7 +5,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+# https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,6 +29,7 @@ if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
 option(BUILD_AERON_DRIVER "Build Aeron driver" ON)
+option(BUILD_AERON_ARCHIVE_API "Build Aeron Archive API" OFF)
 
 option(C_WARNINGS_AS_ERRORS "Enable warnings as errors for C" OFF)
 option(CXX_WARNINGS_AS_ERRORS "Enable warnings as errors for C++" OFF)
@@ -69,7 +70,7 @@ if(AERON_TESTS)
        URL ${CMAKE_CURRENT_SOURCE_DIR}/cppbuild/googletest-release-1.8.0.zip
        URL_MD5 adfafc8512ab65fd3cf7955ef0100ff5
        PREFIX "${AERON_THIRDPARTY_BINARY_DIR}/gmock"
-       CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+       CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER};-DCMAKE_CXX_FLAGS=-D_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING
        BUILD_BYPRODUCTS "${AERON_THIRDPARTY_BINARY_DIR}/gmock/src/gmock-build/googlemock/${CMAKE_CFG_INTDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}gmock${CMAKE_STATIC_LIBRARY_SUFFIX};${AERON_THIRDPARTY_BINARY_DIR}/gmock/src/gmock-build/googlemock/${CMAKE_CFG_INTDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}gmock_main${CMAKE_STATIC_LIBRARY_SUFFIX}"
        INSTALL_COMMAND ""
    )
@@ -91,11 +92,11 @@ endif()
 if(AERON_BUILD_SAMPLES)
     ExternalProject_Add(
         hdr_histogram
-        URL ${CMAKE_CURRENT_SOURCE_DIR}/cppbuild/HdrHistogram_c.zip
-        URL_MD5 8d1d6c6df1ee8342c180529a89568081
-        CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER};-DCMAKE_C_STANDARD=99
+        URL ${CMAKE_CURRENT_SOURCE_DIR}/cppbuild/HdrHistogram_c-0.9.8.zip
+        URL_MD5 2f38e8fea8484bf51ce895cd22ca9775
+        CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER};-DCMAKE_C_STANDARD=99;-DCMAKE_PREFIX_PATH=${CMAKE_CURRENT_BINARY_DIR}/zlib64
         PREFIX "${AERON_THIRDPARTY_BINARY_DIR}/hdr_histogram"
-        BUILD_BYPRODUCTS "${AERON_THIRDPARTY_BINARY_DIR}/hdr_histogram/src/hdr_histogram-build/src/${CMAKE_STATIC_LIBRARY_PREFIX}hdr_histogram_static${CMAKE_STATIC_LIBRARY_SUFFIX}"
+        BUILD_BYPRODUCTS "${AERON_THIRDPARTY_BINARY_DIR}/hdr_histogram/src/hdr_histogram-build/src/${CMAKE_CFG_INTDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}hdr_histogram_static${CMAKE_STATIC_LIBRARY_SUFFIX}"
         INSTALL_COMMAND ""
     )
 
@@ -105,33 +106,7 @@ if(AERON_BUILD_SAMPLES)
     set(HDRHISTOGRAM_BINARY_DIR ${binary_dir})
 
     set(HDRHISTOGRAM_LIBS
-        ${HDRHISTOGRAM_BINARY_DIR}/src/${CMAKE_STATIC_LIBRARY_PREFIX}hdr_histogram_static${CMAKE_STATIC_LIBRARY_SUFFIX}
-    )
-endif()
-
-##########################################################
-# Google benchmark
-
-if(AERON_TESTS)
-    ExternalProject_Add(
-        google_benchmark
-        URL ${CMAKE_CURRENT_SOURCE_DIR}/cppbuild/benchmark-1.4.1.zip
-        URL_MD5 619674faa0d878e239eaf6766259718b
-        CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER};
-            -DBENCHMARK_ENABLE_GTEST_TESTS=OFF;-DBENCHMARK_ENABLE_ASSEMBLY_TESTS=OFF
-        PREFIX "${AERON_THIRDPARTY_BINARY_DIR}/google_benchmark"
-        BUILD_BYPRODUCTS "${AERON_THIRDPARTY_BINARY_DIR}/google_benchmark/src/google_benchmark-build/src/${CMAKE_STATIC_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX}"
-        INSTALL_COMMAND ""
-    )
-
-    ExternalProject_Get_Property(google_benchmark source_dir)
-    set(GOOGLE_BENCHMARK_SOURCE_DIR ${source_dir})
-    ExternalProject_Get_Property(google_benchmark binary_dir)
-    set(GOOGLE_BENCHMARK_BINARY_DIR ${binary_dir})
-
-    set(
-        GOOGLE_BENCHMARK_LIBS
-        ${GOOGLE_BENCHMARK_BINARY_DIR}/src/${CMAKE_STATIC_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX}
+        ${HDRHISTOGRAM_BINARY_DIR}/src/${CMAKE_CFG_INTDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}hdr_histogram_static${CMAKE_STATIC_LIBRARY_SUFFIX}
     )
 endif()
 
@@ -164,6 +139,11 @@ endif()
 if(NOT DEFINED CMAKE_C_EXTENSIONS)
    set(CMAKE_C_EXTENSIONS OFF)
 endif()
+
+add_definitions(-DAERON_VERSION_TXT="${AERON_VERSION_TXT}")
+add_definitions(-DAERON_VERSION_MAJOR=${aeron_VERSION_MAJOR})
+add_definitions(-DAERON_VERSION_MINOR=${aeron_VERSION_MINOR})
+add_definitions(-DAERON_VERSION_PATCH=${aeron_VERSION_PATCH})
 
 # all UNIX-based platform compiler flags
 if(UNIX)
@@ -241,9 +221,12 @@ set(AERON_CLIENT_SOURCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/aeron-client/src/main/
 
 set(AERON_DRIVER_SOURCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/aeron-driver/src/main/c")
 
+set(AERON_ARCHIVE_SOURCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/aeron-archive/src/main/cpp")
+
 if(AERON_TESTS)
     set(AERON_CLIENT_TEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/aeron-client/src/test/cpp")
     set(AERON_DRIVER_TEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/aeron-driver/src/test/c")
+    set(AERON_ARCHIVE_TEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/aeron-archive/src/test/cpp")
 
     # gmock - includes gtest
     include_directories(${GMOCK_SOURCE_DIR}/googletest/include)
@@ -253,11 +236,6 @@ endif()
 if(AERON_BUILD_SAMPLES)
    # hdr_histogram
    include_directories(${HDRHISTOGRAM_SOURCE_DIR}/src)
-endif()
-
-if(AERON_TESTS)
-    # google benchmark
-    include_directories(${GOOGLE_BENCHMARK_SOURCE_DIR}/include)
 endif()
 
 ##########################################################
@@ -279,6 +257,30 @@ if(BUILD_AERON_DRIVER)
    endif()
 endif(BUILD_AERON_DRIVER)
 
+if(BUILD_AERON_ARCHIVE_API)
+    set(ARCHIVE_CODEC_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    set(ARCHIVE_CODEC_SCHEMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/aeron-archive/src/main/resources")
+    set(ARCHIVE_CODEC_WORKING_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    add_subdirectory(${AERON_ARCHIVE_SOURCE_PATH})
+   if(AERON_TESTS)
+       set(AERON_ALL_JAR "${CMAKE_CURRENT_SOURCE_DIR}/aeron-all/build/libs/aeron-all-${AERON_VERSION_TXT}.jar")
+
+       file(GLOB_RECURSE AERON_ALL_SOURCES
+           "${CMAKE_CURRENT_SOURCE_DIR}}/aeron-archive/src/main/java/*.java")
+
+       add_custom_command(OUTPUT ${AERON_ALL_JAR}
+           COMMAND ./gradlew --no-parallel -x test -x check -x javadoc
+           DEPENDS ${AERON_ALL_SOURCES}
+           WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+           COMMENT "Generating aeron-all jar")
+
+       add_custom_target(aeron-all-jar
+           DEPENDS ${AERON_ALL_JAR})
+
+       add_subdirectory(${AERON_ARCHIVE_TEST_PATH})
+   endif()
+endif(BUILD_AERON_ARCHIVE_API)
 ##########################################################
 # doc target
 

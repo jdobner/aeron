@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,31 +15,41 @@
  */
 package io.aeron.driver.media;
 
+import io.aeron.driver.DriverConductorProxy;
 import io.aeron.driver.MediaDriver;
+import org.agrona.concurrent.status.AtomicCounter;
 
 import java.net.InetSocketAddress;
 import java.nio.channels.SelectionKey;
 
-import static io.aeron.driver.status.SystemCounterDescriptor.INVALID_PACKETS;
-
+/**
+ * Destination endpoint representation for reception into an image from a UDP transport.
+ */
 public class ReceiveDestinationUdpTransport extends UdpChannelTransport
 {
-    public ReceiveDestinationUdpTransport(
-        final UdpChannel udpChannel,
-        final MediaDriver.Context context)
+    public ReceiveDestinationUdpTransport(final UdpChannel udpChannel, final MediaDriver.Context context)
     {
-        super(
-            udpChannel,
-            udpChannel.remoteData(),
-            udpChannel.remoteData(),
-            null,
-            context.errorLog(),
-            context.systemCounters().get(INVALID_PACKETS));
+        super(udpChannel, udpChannel.remoteData(), udpChannel.remoteData(), null, context);
     }
 
-    public void openChannel()
+    public void openChannel(final DriverConductorProxy conductorProxy, final AtomicCounter statusIndicator)
     {
-        openDatagramChannel(null);
+        if (conductorProxy.notConcurrent())
+        {
+            openDatagramChannel(statusIndicator);
+        }
+        else
+        {
+            try
+            {
+                openDatagramChannel(statusIndicator);
+            }
+            catch (final Exception ex)
+            {
+                conductorProxy.channelEndpointError(statusIndicator.id(), ex);
+                throw ex;
+            }
+        }
     }
 
     public boolean hasExplicitControl()

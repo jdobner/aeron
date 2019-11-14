@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -43,6 +43,8 @@ class MemberStatusPublisher
     private final JoinClusterEncoder joinClusterEncoder = new JoinClusterEncoder();
     private final TerminationPositionEncoder terminationPositionEncoder = new TerminationPositionEncoder();
     private final TerminationAckEncoder terminationAckEncoder = new TerminationAckEncoder();
+    private final BackupQueryEncoder backupQueryEncoder = new BackupQueryEncoder();
+    private final BackupResponseEncoder backupResponseEncoder = new BackupResponseEncoder();
 
     void canvassPosition(
         final Publication publication,
@@ -147,9 +149,9 @@ class MemberStatusPublisher
     void newLeadershipTerm(
         final Publication publication,
         final long logLeadershipTermId,
-        final long logPosition,
         final long leadershipTermId,
-        final long maxLogPosition,
+        final long logPosition,
+        final long timestamp,
         final int leaderMemberId,
         final int logSessionId)
     {
@@ -164,9 +166,9 @@ class MemberStatusPublisher
                 newLeadershipTermEncoder
                     .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
                     .logLeadershipTermId(logLeadershipTermId)
-                    .logPosition(logPosition)
                     .leadershipTermId(leadershipTermId)
-                    .maxLogPosition(maxLogPosition)
+                    .logPosition(logPosition)
+                    .timestamp(timestamp)
                     .leaderMemberId(leaderMemberId)
                     .logSessionId(logSessionId);
 
@@ -461,9 +463,7 @@ class MemberStatusPublisher
         return false;
     }
 
-    boolean terminationPosition(
-        final Publication publication,
-        final long logPosition)
+    boolean terminationPosition(final Publication publication, final long logPosition)
     {
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + TerminationPositionEncoder.BLOCK_LENGTH;
 
@@ -489,10 +489,7 @@ class MemberStatusPublisher
         return false;
     }
 
-    boolean terminationAck(
-        final Publication publication,
-        final long logPosition,
-        final int memberId)
+    boolean terminationAck(final Publication publication, final long logPosition, final int memberId)
     {
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + TerminationAckEncoder.BLOCK_LENGTH;
 
@@ -509,6 +506,104 @@ class MemberStatusPublisher
 
                 bufferClaim.commit();
 
+                return true;
+            }
+
+            checkResult(result);
+        }
+        while (--attempts > 0);
+
+        return false;
+    }
+
+    boolean backupQuery(
+        final Publication publication,
+        final long correlationId,
+        final int responseStreamId,
+        final int version,
+        final String responseChannel,
+        final byte[] encodedCredentials)
+    {
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + BackupQueryEncoder.BLOCK_LENGTH +
+            BackupQueryEncoder.responseChannelHeaderLength() +
+            responseChannel.length() +
+            BackupQueryEncoder.encodedCredentialsHeaderLength() +
+            encodedCredentials.length;
+
+        int attempts = SEND_ATTEMPTS;
+        do
+        {
+            final long result = publication.tryClaim(length, bufferClaim);
+            if (result > 0)
+            {
+                backupQueryEncoder
+                    .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
+                    .correlationId(correlationId)
+                    .responseStreamId(responseStreamId)
+                    .version(version)
+                    .responseChannel(responseChannel)
+                    .putEncodedCredentials(encodedCredentials, 0, encodedCredentials.length);
+
+                bufferClaim.commit();
+
+                return true;
+            }
+
+            checkResult(result);
+        }
+        while (--attempts > 0);
+
+        return false;
+    }
+
+    boolean backupResponse(
+        final Publication publication,
+        final long correlationId,
+        final long logRecordingId,
+        final long logLeadershipTermId,
+        final long logTermBaseLogPosition,
+        final long lastLeadershipTermId,
+        final long lastTermBaseLogPosition,
+        final int commitPositionCounterId,
+        final int leaderMemberId,
+        final RecordingLog.RecoveryPlan recoveryPlan,
+        final String clusterMembers)
+    {
+        backupResponseEncoder.wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
+            .correlationId(correlationId)
+            .logRecordingId(logRecordingId)
+            .logLeadershipTermId(logLeadershipTermId)
+            .logTermBaseLogPosition(logTermBaseLogPosition)
+            .lastLeadershipTermId(lastLeadershipTermId)
+            .lastTermBaseLogPosition(lastTermBaseLogPosition)
+            .commitPositionCounterId(commitPositionCounterId)
+            .leaderMemberId(leaderMemberId);
+
+        final BackupResponseEncoder.SnapshotsEncoder snapshotsEncoder =
+            backupResponseEncoder.snapshotsCount(recoveryPlan.snapshots.size());
+        for (int i = 0, length = recoveryPlan.snapshots.size(); i < length; i++)
+        {
+            final RecordingLog.Snapshot snapshot = recoveryPlan.snapshots.get(i);
+
+            snapshotsEncoder.next()
+                .recordingId(snapshot.recordingId)
+                .leadershipTermId(snapshot.leadershipTermId)
+                .termBaseLogPosition(snapshot.termBaseLogPosition)
+                .logPosition(snapshot.logPosition)
+                .timestamp(snapshot.timestamp)
+                .serviceId(snapshot.serviceId);
+        }
+
+        backupResponseEncoder.clusterMembers(clusterMembers);
+
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + backupResponseEncoder.encodedLength();
+
+        int attempts = SEND_ATTEMPTS;
+        do
+        {
+            final long result = publication.offer(buffer, 0, length);
+            if (result > 0)
+            {
                 return true;
             }
 

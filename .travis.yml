@@ -7,35 +7,21 @@ before_script:
     sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6';
     fi
 
-# don't run gradle during C++ builds
-install: skip
+dist: xenial
 
 matrix:
   include:
-    - name: "Oracle Java 8"
+    - name: "OpenJDK 8"
       language: java
-      jdk: oraclejdk8
+      jdk: openjdk8
       os: linux
-      script: ./gradlew
+      script: ./gradlew --scan
 
     - name: "OpenJDK 11"
       language: java
       jdk: openjdk11
       os: linux
-      script: ./gradlew
-
-    - env: COMPILER=clang++-4.0
-      language: c++
-      compiler: clang
-      addons:
-        apt:
-          packages:
-            - clang-4.0
-            - libstdc++-6-dev
-          sources:
-            - ubuntu-toolchain-r-test
-            - llvm-toolchain-trusty-4.0
-      script: cppbuild/cppbuild
+      script: ./gradlew --scan
 
     - env: COMPILER=clang++-5.0
       language: c++
@@ -48,8 +34,8 @@ matrix:
             - libstdc++-7-dev
           sources:
             - ubuntu-toolchain-r-test
-            - llvm-toolchain-trusty-5.0
-      script: cppbuild/cppbuild
+            - llvm-toolchain-xenial-5.0
+      script: cppbuild/cppbuild --build-archive-api
 
     - env: COMPILER=clang++-6.0
       language: c++
@@ -62,8 +48,51 @@ matrix:
             - libstdc++-7-dev
           sources:
             - ubuntu-toolchain-r-test
-            - llvm-toolchain-trusty-6.0
-      script: cppbuild/cppbuild
+            - llvm-toolchain-xenial-6.0
+      script: cppbuild/cppbuild --build-archive-api
+
+    - env: COMPILER=clang++-7
+      language: c++
+      compiler: clang
+      os: linux
+      addons:
+        apt:
+          packages:
+            - clang-7
+            - libstdc++-7-dev
+          sources:
+            - ubuntu-toolchain-r-test
+            - llvm-toolchain-xenial-7
+      script: cppbuild/cppbuild --build-archive-api
+
+    - env: COMPILER=clang++-8
+      language: c++
+      compiler: clang
+      os: linux
+      addons:
+        apt:
+          packages:
+            - clang-8
+            - libstdc++-7-dev
+          sources:
+            - ubuntu-toolchain-r-test
+            - llvm-toolchain-xenial-8
+      script: cppbuild/cppbuild --build-archive-api
+
+    - name: "Clang 7 debug build"
+      env: COMPILER=clang++-7
+      language: c++
+      compiler: clang
+      os: linux
+      addons:
+        apt:
+          packages:
+            - clang-7
+            - libstdc++-7-dev
+          sources:
+            - ubuntu-toolchain-r-test
+            - llvm-toolchain-xenial-7
+      script: cppbuild/cppbuild --debug-build --build-archive-api
 
     - env: COMPILER=g++-6
       language: c++
@@ -75,7 +104,7 @@ matrix:
             - g++-6
           sources:
             - ubuntu-toolchain-r-test
-      script: cppbuild/cppbuild
+      script: cppbuild/cppbuild --build-archive-api
 
     - env: COMPILER=g++-7
       language: c++
@@ -87,7 +116,7 @@ matrix:
             - g++-7
           sources:
             - ubuntu-toolchain-r-test
-      script: cppbuild/cppbuild
+      script: cppbuild/cppbuild --build-archive-api
 
     - env: COMPILER=g++-8
       language: c++
@@ -99,13 +128,25 @@ matrix:
             - g++-8
           sources:
             - ubuntu-toolchain-r-test
-      script: cppbuild/cppbuild -b
+      script: cppbuild/cppbuild --build-archive-api
+
+    - env: COMPILER=g++-9
+      language: c++
+      compiler: gcc
+      os: linux
+      addons:
+        apt:
+          packages:
+            - g++-9
+          sources:
+            - ubuntu-toolchain-r-test
+      script: cppbuild/cppbuild --build-archive-api
 
     - env: COMPILER=clang++
       language: c++
       compiler: clang
       os: osx
-      script: cppbuild/cppbuild
+      script: cppbuild/cppbuild --build-archive-api
 
 before_cache:
   - rm -f  $HOME/.gradle/caches/modules-2/modules-2.lock

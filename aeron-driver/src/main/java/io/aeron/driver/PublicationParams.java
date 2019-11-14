@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,10 +34,15 @@ final class PublicationParams
     int termId = 0;
     int termOffset = 0;
     int sessionId = 0;
-    boolean isReplay = false;
+    boolean hasPosition = false;
     boolean hasSessionId = false;
     boolean isSessionIdTagged = false;
     boolean isSparse;
+    boolean signalEos = true;
+
+    PublicationParams()
+    {
+    }
 
     static PublicationParams getPublicationParams(
         final MediaDriver.Context context,
@@ -54,6 +59,7 @@ final class PublicationParams
         params.getMtuLength(channelUri);
         params.getLingerTimeoutNs(channelUri);
         params.getSparse(channelUri);
+        params.getEos(channelUri);
 
         if (isExclusive)
         {
@@ -87,10 +93,10 @@ final class PublicationParams
                             TERM_LENGTH_PARAM_NAME + "=" + params.termLength);
                 }
 
-                if (params.termOffset < 0)
+                if (params.termOffset < 0 || params.termOffset > LogBufferDescriptor.TERM_MAX_LENGTH)
                 {
                     throw new IllegalArgumentException(
-                        TERM_OFFSET_PARAM_NAME + "=" + params.termOffset + " must be greater than zero");
+                        TERM_OFFSET_PARAM_NAME + "=" + params.termOffset + " out of range");
                 }
 
                 if ((params.termOffset & (FrameDescriptor.FRAME_ALIGNMENT - 1)) != 0)
@@ -99,7 +105,15 @@ final class PublicationParams
                         TERM_OFFSET_PARAM_NAME + "=" + params.termOffset + " must be a multiple of FRAME_ALIGNMENT");
                 }
 
-                params.isReplay = true;
+                if (params.termId - params.initialTermId < 0)
+                {
+                    throw new IllegalStateException(
+                        "difference greater than 2^31 - 1: " + INITIAL_TERM_ID_PARAM_NAME + "=" +
+                        params.initialTermId + " when " + TERM_ID_PARAM_NAME + "=" + params.termId);
+
+                }
+
+                params.hasPosition = true;
             }
         }
 
@@ -251,6 +265,15 @@ final class PublicationParams
         }
     }
 
+    private void getEos(final ChannelUri channelUri)
+    {
+        final String eosStr = channelUri.get(EOS_PARAM_NAME);
+        if (null != eosStr)
+        {
+            signalEos = Boolean.parseBoolean(eosStr);
+        }
+    }
+
     private static void validateEntityTag(final long entityTag, final DriverConductor driverConductor)
     {
         if (INVALID_TAG == entityTag)
@@ -263,5 +286,24 @@ final class PublicationParams
         {
             throw new IllegalArgumentException(entityTag + " entityTag already in use");
         }
+    }
+
+    public String toString()
+    {
+        return "PublicationParams{" +
+            "lingerTimeoutNs=" + lingerTimeoutNs +
+            ", entityTag=" + entityTag +
+            ", termLength=" + termLength +
+            ", mtuLength=" + mtuLength +
+            ", initialTermId=" + initialTermId +
+            ", termId=" + termId +
+            ", termOffset=" + termOffset +
+            ", sessionId=" + sessionId +
+            ", hasPosition=" + hasPosition +
+            ", hasSessionId=" + hasSessionId +
+            ", isSessionIdTagged=" + isSessionIdTagged +
+            ", isSparse=" + isSparse +
+            ", signalEos=" + signalEos +
+            '}';
     }
 }

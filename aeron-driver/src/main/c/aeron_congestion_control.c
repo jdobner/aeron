@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,11 +19,11 @@
 #define _GNU_SOURCE
 #endif
 
-#include <dlfcn.h>
 #include <errno.h>
 #include "protocol/aeron_udp_protocol.h"
 #include "concurrent/aeron_logbuffer_descriptor.h"
 #include "util/aeron_error.h"
+#include "util/aeron_dlopen.h"
 #include "aeron_congestion_control.h"
 #include "aeron_alloc.h"
 #include "aeron_driver_context.h"
@@ -33,11 +33,16 @@ aeron_congestion_control_strategy_supplier_func_t aeron_congestion_control_strat
 {
     aeron_congestion_control_strategy_supplier_func_t func = NULL;
 
-    if ((func = (aeron_congestion_control_strategy_supplier_func_t)dlsym(RTLD_DEFAULT, strategy_name)) == NULL)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+    if ((func = (aeron_congestion_control_strategy_supplier_func_t)aeron_dlsym(RTLD_DEFAULT, strategy_name)) == NULL)
     {
-        aeron_set_err(EINVAL, "could not find congestion control strategy %s: dlsym - %s", strategy_name, dlerror());
+        aeron_set_err(
+            EINVAL, "could not find congestion control strategy %s: dlsym - %s", strategy_name, aeron_dlerror());
+
         return NULL;
     }
+#pragma GCC diagnostic pop
 
     return func;
 }
@@ -70,6 +75,7 @@ int32_t aeron_static_window_congestion_control_strategy_on_track_rebuild(
     bool loss_occurred)
 {
     *should_force_sm = false;
+
     return ((aeron_static_window_congestion_control_strategy_state_t *)state)->window_length;
 }
 
@@ -82,18 +88,21 @@ int aeron_static_window_congestion_control_strategy_fini(aeron_congestion_contro
 {
     aeron_free(strategy->state);
     aeron_free(strategy);
+
     return 0;
 }
 
 int aeron_static_window_congestion_control_strategy_supplier(
     aeron_congestion_control_strategy_t **strategy,
-    int32_t channel_length,
+    size_t channel_length,
     const char *channel,
     int32_t stream_id,
     int32_t session_id,
     int64_t registration_id,
     int32_t term_length,
     int32_t sender_mtu_length,
+    struct sockaddr_storage *control_address,
+    struct sockaddr_storage *src_address,
     aeron_driver_context_t *context,
     aeron_counters_manager_t *counters_manager)
 {
@@ -118,5 +127,6 @@ int aeron_static_window_congestion_control_strategy_supplier(
     state->window_length = max_window_for_term < initial_window_length ? max_window_for_term : initial_window_length;
 
     *strategy = _strategy;
+
     return 0;
 }

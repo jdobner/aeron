@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -86,7 +86,7 @@ public class ChannelUriStringBuilderTest
             .ttl(9)
             .termLength(1024 * 128);
 
-        assertThat(builder.build(), is("aeron:udp?endpoint=localhost:9999|ttl=9|term-length=131072"));
+        assertThat(builder.build(), is("aeron:udp?endpoint=localhost:9999|term-length=131072|ttl=9"));
     }
 
     @Test

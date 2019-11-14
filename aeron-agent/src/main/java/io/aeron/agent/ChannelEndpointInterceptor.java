@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,15 +23,15 @@ import org.agrona.concurrent.UnsafeBuffer;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
-import static io.aeron.agent.EventCode.*;
-import static io.aeron.agent.EventLogger.LOGGER;
+import static io.aeron.agent.DriverEventCode.*;
+import static io.aeron.agent.DriverEventLogger.LOGGER;
 
 /**
  * Intercepts calls on channel endpoints for logging.
  */
 class ChannelEndpointInterceptor
 {
-    public static class SenderProxyInterceptor
+    public static class SenderProxy
     {
         public static class RegisterSendChannelEndpoint
         {
@@ -52,7 +52,7 @@ class ChannelEndpointInterceptor
         }
     }
 
-    public static class ReceiverProxyInterceptor
+    public static class ReceiverProxy
     {
         public static class RegisterReceiveChannelEndpoint
         {
@@ -73,7 +73,7 @@ class ChannelEndpointInterceptor
         }
     }
 
-    public static class UdpChannelTransportInterceptor
+    public static class UdpChannelTransport
     {
         public static class SendHook
         {

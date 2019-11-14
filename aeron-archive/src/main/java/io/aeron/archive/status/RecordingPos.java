@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -215,16 +215,10 @@ public class RecordingPos
     public static boolean isActive(final CountersReader countersReader, final int counterId, final long recordingId)
     {
         final DirectBuffer buffer = countersReader.metaDataBuffer();
+        final int recordOffset = CountersReader.metaDataOffset(counterId);
 
-        if (countersReader.getCounterState(counterId) == RECORD_ALLOCATED)
-        {
-            final int recordOffset = CountersReader.metaDataOffset(counterId);
-
-            return
-                buffer.getInt(recordOffset + TYPE_ID_OFFSET) == RECORDING_POSITION_TYPE_ID &&
-                buffer.getLong(recordOffset + KEY_OFFSET + RECORDING_ID_OFFSET) == recordingId;
-        }
-
-        return false;
+        return buffer.getInt(recordOffset + TYPE_ID_OFFSET) == RECORDING_POSITION_TYPE_ID &&
+            buffer.getLong(recordOffset + KEY_OFFSET + RECORDING_ID_OFFSET) == recordingId &&
+            countersReader.getCounterState(counterId) == RECORD_ALLOCATED;
     }
 }

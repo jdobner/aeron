@@ -5,6 +5,16 @@ BUILD_DIR="`pwd`/cppbuild/Release"
 EXTRA_CMAKE_ARGS=""
 COVERAGE_BUILD=0
 
+ncpus=1
+case "`uname`" in
+  Darwin* )
+    ncpus=`sysctl -n hw.ncpu`
+    ;;
+  Linux*)
+    ncpus=$(lscpu -p | egrep -v '^#' | wc -l)
+    ;;
+esac
+
 for option in "$@"
 do
   case ${option} in
@@ -18,8 +28,20 @@ do
       echo "Enabling warnings as errors for c++"
       shift
       ;;
+    -a|--build-archive-api)
+      EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DBUILD_AERON_ARCHIVE_API=ON"
+      shift
+      ;;
+    -d|--debug-build)
+      EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug"
+      shift
+      ;;
     -b|--build-aeron-driver)
       echo "Enabling building of aeron driver is now the default"
+      shift
+      ;;
+    --no-parallel)
+      ncpus=1
       shift
       ;;
     --sanitise-build)
@@ -39,7 +61,7 @@ do
       shift
       ;;
     -h|--help)
-      echo "$0 [--c-warnings-as-errors] [--cxx-warnings-as-errors] [--build-aeron-driver] [--sanitise-build] [--coverage-build]"
+      echo "$0 [--c-warnings-as-errors] [--cxx-warnings-as-errors] [--debug-build] [--build-aeron-driver] [--sanitise-build] [--coverage-build] [--no-parallel]"
       exit
       ;;
     *)
@@ -49,16 +71,6 @@ do
       ;;
   esac
 done
-
-ncpus=1
-case "`uname`" in
-  Darwin* )
-    ncpus=`sysctl -n hw.ncpu`
-    ;;
-  Linux*)
-    ncpus=$(lscpu -p | egrep -v '^#' | wc -l)
-    ;;
-esac
 
 echo "Will make with \"-j $ncpus\"."
 
@@ -78,5 +90,5 @@ if [[ "$COVERAGE_BUILD" -eq 1 ]] ; then
   lcov -o coverage/cov.stripped.info --remove coverage/cov.info "/usr/include/*" "*/googletest/*" "*/test/cpp/*" "*/googlemock/*"
   genhtml coverage/cov.stripped.info --demangle-cpp -o coverage
 else
-  (cd ${BUILD_DIR} && cmake -G "CodeBlocks - Unix Makefiles" ${EXTRA_CMAKE_ARGS} ${SOURCE_DIR} && make clean && make -j "$ncpus" all && ctest -C Release -j "$ncpus")
+  (cd ${BUILD_DIR} && cmake -G "CodeBlocks - Unix Makefiles" ${EXTRA_CMAKE_ARGS} ${SOURCE_DIR} && make clean && make -j "$ncpus" all && ctest -C Release --output-on-failure)
 fi

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,7 +25,8 @@ import org.agrona.concurrent.UnsafeBuffer;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Basic Aeron publisher application
+ * Basic Aeron publisher application.
+ * <p>
  * This publisher sends a fixed number of messages on a channel and stream ID,
  * then lingers to allow any consumers that may have experienced loss a chance to NAK for
  * and recover any missing data.
@@ -45,7 +46,7 @@ public class BasicPublisher
 
     public static void main(final String[] args) throws Exception
     {
-        System.out.println("Publishing to " + CHANNEL + " on stream Id " + STREAM_ID);
+        System.out.println("Publishing to " + CHANNEL + " on stream id " + STREAM_ID);
 
         // If configured to do so, create an embedded media driver within this application rather
         // than relying on an external one.

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -39,7 +39,8 @@ public:
         m_agent(agent),
         m_idleStrategy(idleStrategy),
         m_exceptionHandler(exceptionHandler),
-        m_running(true),
+        m_isRunning(false),
+        m_isClosed(false),
         m_name("aeron-agent")
     {
     }
@@ -49,7 +50,8 @@ public:
         m_agent(agent),
         m_idleStrategy(idleStrategy),
         m_exceptionHandler(exceptionHandler),
-        m_running(true),
+        m_isRunning(false),
+        m_isClosed(false),
         m_name(name)
     {
     }
@@ -62,6 +64,26 @@ public:
     inline const std::string& name() const
     {
         return m_name;
+    }
+
+    /**
+ * Is the Agent running?
+ *
+ * @return is the Agent been started successfully and not closed?
+ */
+    inline bool isRunning() const
+    {
+        return m_isRunning;
+    }
+
+    /**
+     * Has the Agent been closed?
+     *
+     * @return has the Agent been closed?
+     */
+    inline bool isClosed() const
+    {
+        return m_isClosed;
     }
 
     /**
@@ -88,6 +110,9 @@ public:
      */
     inline void run()
     {
+        bool expected = false;
+        std::atomic_compare_exchange_strong(&m_isRunning, &expected, true);
+
         try
         {
             m_agent.onStart();
@@ -95,10 +120,10 @@ public:
         catch (const util::SourcedException &exception)
         {
             m_exceptionHandler(exception);
-            m_running = false;
+            m_isRunning = false;
         }
 
-        while (m_running)
+        while (m_isRunning)
         {
             try
             {
@@ -125,15 +150,20 @@ public:
      */
     inline void close()
     {
-        m_running = false;
-        m_thread.join();
+        bool expected = false;
+        if (std::atomic_compare_exchange_strong(&m_isClosed, &expected, true))
+        {
+            m_isRunning = false;
+            m_thread.join();
+        }
     }
 
 private:
     Agent& m_agent;
     IdleStrategy& m_idleStrategy;
     logbuffer::exception_handler_t& m_exceptionHandler;
-    std::atomic<bool> m_running;
+    std::atomic<bool> m_isRunning;
+    std::atomic<bool> m_isClosed;
     std::thread m_thread;
     const std::string m_name;
 };

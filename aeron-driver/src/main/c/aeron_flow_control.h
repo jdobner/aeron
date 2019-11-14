@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,10 +17,9 @@
 #ifndef AERON_FLOW_CONTROL_H
 #define AERON_FLOW_CONTROL_H
 
-#include <netinet/in.h>
+#include "aeron_socket.h"
 #include "aeron_driver_common.h"
-
-typedef struct aeron_flow_control_strategy_stct aeron_flow_control_strategy_t;
+#include "aeronmd.h"
 
 #define AERON_MAX_FLOW_CONTROL_STRATEGY_RECEIVER_TIMEOUT_NS (2 * 1000 * 1000 * 1000L)
 
@@ -41,32 +40,51 @@ typedef int64_t (*aeron_flow_control_strategy_on_sm_func_t)(
     size_t position_bits_to_shift,
     int64_t now_ns);
 
-typedef bool (*aeron_flow_control_strategy_should_linger_func_t)(
-    void *state,
-    int64_t now_ns);
-
-typedef int (*aeron_flow_control_strategy_fini_func_t)(
-    aeron_flow_control_strategy_t *strategy);
+typedef int (*aeron_flow_control_strategy_fini_func_t)(aeron_flow_control_strategy_t *strategy);
 
 typedef struct aeron_flow_control_strategy_stct
 {
     aeron_flow_control_strategy_on_sm_func_t on_status_message;
     aeron_flow_control_strategy_on_idle_func_t on_idle;
-    aeron_flow_control_strategy_should_linger_func_t should_linger;
     aeron_flow_control_strategy_fini_func_t fini;
     void *state;
 }
 aeron_flow_control_strategy_t;
 
-typedef int (*aeron_flow_control_strategy_supplier_func_t)(
+aeron_flow_control_strategy_supplier_func_t aeron_flow_control_strategy_supplier_load(const char *strategy_name);
+
+int aeron_max_multicast_flow_control_strategy_supplier(
     aeron_flow_control_strategy_t **strategy,
-    int32_t channel_length,
+    size_t channel_length,
+    const char *channel,
+    int32_t stream_id,
+    int64_t registration_id,
+    int32_t initial_term_id,
+    size_t term_length);
+
+int aeron_unicast_flow_control_strategy_supplier(
+    aeron_flow_control_strategy_t **strategy,
+    size_t channel_length,
+    const char *channel,
+    int32_t stream_id,
+    int64_t registration_id,
+    int32_t initial_term_id,
+    size_t term_length);
+
+int aeron_min_flow_control_strategy_supplier(
+    aeron_flow_control_strategy_t **strategy,
+    size_t channel_length,
     const char *channel,
     int32_t stream_id,
     int64_t registration_id,
     int32_t initial_term_id,
     size_t term_buffer_capacity);
 
-aeron_flow_control_strategy_supplier_func_t aeron_flow_control_strategy_supplier_load(const char *strategy_name);
+typedef struct aeron_flow_control_strategy_supplier_func_table_entry_stct
+{
+    const char *name;
+    aeron_flow_control_strategy_supplier_func_t supplier_func;
+}
+aeron_flow_control_strategy_supplier_func_table_entry_t;
 
 #endif //AERON_FLOW_CONTROL_H

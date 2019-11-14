@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,7 +28,7 @@
 #define AERON_LOGBUFFER_TERM_MAX_LENGTH (1024 * 1024 * 1024)
 #define AERON_PAGE_MIN_SIZE (4 * 1024)
 #define AERON_PAGE_MAX_SIZE (1024 * 1024 * 1024)
-#define AERON_LOGBUFFER_DEFAULT_FRAME_HEADER_MAX_LENGTH  (AERON_CACHE_LINE_LENGTH * 2)
+#define AERON_LOGBUFFER_DEFAULT_FRAME_HEADER_MAX_LENGTH (AERON_CACHE_LINE_LENGTH * 2)
 
 #define AERON_MAX_UDP_PAYLOAD_LENGTH (65504)
 
@@ -41,7 +41,8 @@ typedef struct aeron_logbuffer_metadata_stct
     uint8_t pad1[(2 * AERON_CACHE_LINE_LENGTH) - ((AERON_LOGBUFFER_PARTITION_COUNT * sizeof(int64_t)) + sizeof(int32_t))];
     int64_t end_of_stream_position;
     int32_t is_connected;
-    uint8_t pad2[(2 * AERON_CACHE_LINE_LENGTH) - (sizeof(int64_t) + sizeof(int32_t))];
+    int32_t active_transport_count;
+    uint8_t pad2[(2 * AERON_CACHE_LINE_LENGTH) - (sizeof(int64_t) + (2 * sizeof(int32_t)))];
     int64_t correlation_id;
     int32_t initial_term_id;
     int32_t default_frame_header_length;

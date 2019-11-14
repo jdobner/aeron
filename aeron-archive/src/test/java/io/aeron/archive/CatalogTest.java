@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -174,28 +174,37 @@ public class CatalogTest
 
         try (Catalog catalog = new Catalog(archiveDir, clock))
         {
-            catalog.forEntry(
-                (he, hd, e, decoder) -> assertThat(decoder.stopTimestamp(), is(NULL_TIMESTAMP)), newRecordingId);
+            assertTrue(catalog.forEntry(
+                newRecordingId,
+                (headerEncoder, headerDecoder, descriptorEncoder, descriptorDecoder) ->
+                {
+                    assertThat(descriptorDecoder.stopTimestamp(), is(NULL_TIMESTAMP));
+                }));
         }
 
         currentTimeMs = 42L;
 
         try (Catalog catalog = new Catalog(archiveDir, null, 0, MAX_ENTRIES, clock))
         {
-            catalog.forEntry(
-                (he, hd, e, decoder) -> assertThat(decoder.stopTimestamp(), is(42L)), newRecordingId);
+            assertTrue(catalog.forEntry(
+                newRecordingId,
+                (headerEncoder, headerDecoder, descriptorEncoder, descriptorDecoder) ->
+                {
+                    assertThat(descriptorDecoder.stopTimestamp(), is(42L));
+                }));
         }
     }
 
+    @SuppressWarnings("ResultOfMethodCallIgnored")
     @Test
     public void shouldFixTimestampAndPositionAfterFailureSamePage() throws Exception
     {
         final long newRecordingId = newRecording();
 
         new File(archiveDir, segmentFileName(newRecordingId, 0)).createNewFile();
-        new File(archiveDir, segmentFileName(newRecordingId, 1)).createNewFile();
-        new File(archiveDir, segmentFileName(newRecordingId, 2)).createNewFile();
-        final File segmentFile = new File(archiveDir, segmentFileName(newRecordingId, 3));
+        new File(archiveDir, segmentFileName(newRecordingId, SEGMENT_LENGTH)).createNewFile();
+        new File(archiveDir, segmentFileName(newRecordingId, 2 * SEGMENT_LENGTH)).createNewFile();
+        final File segmentFile = new File(archiveDir, segmentFileName(newRecordingId, 3 * SEGMENT_LENGTH));
 
         try (FileChannel log = FileChannel.open(segmentFile.toPath(), READ, WRITE, CREATE))
         {
@@ -213,26 +222,28 @@ public class CatalogTest
 
         try (Catalog catalog = new Catalog(archiveDir, clock))
         {
-            catalog.forEntry(
-                (he, hd, e, decoder) ->
+            assertTrue(catalog.forEntry(
+                newRecordingId,
+                (headerEncoder, headerDecoder, descriptorEncoder, descriptorDecoder) ->
                 {
-                    assertThat(decoder.stopTimestamp(), is(NULL_TIMESTAMP));
-                    assertThat(decoder.stopPosition(), is(NULL_POSITION));
-                },
-                newRecordingId);
+                    assertThat(descriptorDecoder.stopTimestamp(), is(NULL_TIMESTAMP));
+                    assertThat(descriptorDecoder.stopPosition(), is(NULL_POSITION));
+                }
+            ));
         }
 
         currentTimeMs = 42L;
 
         try (Catalog catalog = new Catalog(archiveDir, null, 0, MAX_ENTRIES, clock))
         {
-            catalog.forEntry(
-                (he, hd, e, decoder) ->
+            assertTrue(catalog.forEntry(
+                newRecordingId,
+                (headerEncoder, headerDecoder, descriptorEncoder, descriptorDecoder) ->
                 {
-                    assertThat(decoder.stopTimestamp(), is(42L));
-                    assertThat(decoder.stopPosition(), is(SEGMENT_LENGTH * 3 + 1024L + 128L));
-                },
-                newRecordingId);
+                    assertThat(descriptorDecoder.stopTimestamp(), is(42L));
+                    assertThat(descriptorDecoder.stopPosition(), is(SEGMENT_LENGTH * 3 + 1024L + 128L));
+                }
+            ));
         }
     }
 
@@ -245,13 +256,14 @@ public class CatalogTest
 
         try (Catalog catalog = new Catalog(archiveDir, clock))
         {
-            catalog.forEntry(
-                (he, hd, e, decoder) ->
+            assertTrue(catalog.forEntry(
+                newRecordingId,
+                (headerEncoder, headerDecoder, descriptorEncoder, descriptorDecoder) ->
                 {
-                    assertThat(decoder.stopTimestamp(), is(NULL_TIMESTAMP));
-                    assertThat(decoder.stopPosition(), is(NULL_POSITION));
-                },
-                newRecordingId);
+                    assertThat(descriptorDecoder.stopTimestamp(), is(NULL_TIMESTAMP));
+                    assertThat(descriptorDecoder.stopPosition(), is(NULL_POSITION));
+                }
+            ));
         }
 
         currentTimeMs = 42L;
@@ -259,12 +271,13 @@ public class CatalogTest
         try (Catalog catalog = new Catalog(archiveDir, null, 0, MAX_ENTRIES, clock))
         {
             assertTrue(catalog.forEntry(
-                (he, hd, e, decoder) ->
+                newRecordingId,
+                (headerEncoder, headerDecoder, descriptorEncoder, descriptorDecoder) ->
                 {
-                    assertThat(decoder.stopTimestamp(), is(42L));
-                    assertThat(decoder.stopPosition(), is((long)PAGE_SIZE - HEADER_LENGTH));
-                },
-                newRecordingId));
+                    assertThat(descriptorDecoder.stopTimestamp(), is(42L));
+                    assertThat(descriptorDecoder.stopPosition(), is((long)PAGE_SIZE - HEADER_LENGTH));
+                }
+            ));
         }
     }
 
@@ -314,26 +327,38 @@ public class CatalogTest
 
         try (Catalog catalog = new Catalog(archiveDir, clock))
         {
-            catalog.forEntry(
-                (he, hd, e, decoder) ->
+            assertTrue(catalog.forEntry(
+                newRecordingId,
+                (headerEncoder, headerDecoder, descriptorEncoder, descriptorDecoder) ->
                 {
-                    assertThat(decoder.stopTimestamp(), is(NULL_TIMESTAMP));
-                    e.stopPosition(NULL_POSITION);
-                },
-                newRecordingId);
+                    assertThat(descriptorDecoder.stopTimestamp(), is(NULL_TIMESTAMP));
+                }
+            ));
+        }
+
+        try (Catalog catalog = new Catalog(archiveDir, null, 0, MAX_ENTRIES, clock))
+        {
+            catalog.forEntry(
+                newRecordingId,
+                (headerEncoder, headerDecoder, descriptorEncoder, descriptorDecoder) ->
+                {
+                    descriptorEncoder.stopPosition(NULL_POSITION);
+                }
+            );
         }
 
         currentTimeMs = 42L;
 
         try (Catalog catalog = new Catalog(archiveDir, null, 0, MAX_ENTRIES, clock))
         {
-            catalog.forEntry(
-                (he, hd, e, decoder) ->
+            assertTrue(catalog.forEntry(
+                newRecordingId,
+                (headerEncoder, headerDecoder, descriptorEncoder, descriptorDecoder) ->
                 {
-                    assertThat(decoder.stopTimestamp(), is(42L));
-                    assertThat(decoder.stopPosition(), is(expectedLastFrame));
-                },
-                newRecordingId);
+                    assertThat(descriptorDecoder.stopTimestamp(), is(42L));
+                    assertThat(descriptorDecoder.stopPosition(), is(expectedLastFrame));
+                }
+            ));
         }
     }
 
@@ -385,7 +410,7 @@ public class CatalogTest
     @Test
     public void shouldContainChannelFragment()
     {
-        try (Catalog catalog = new Catalog(archiveDir, clock))
+        try (Catalog catalog = new Catalog(archiveDir, null, 0, MAX_ENTRIES, clock))
         {
             final String originalChannel = "aeron:udp?endpoint=localhost:7777|tags=777|alias=TestString";
             final String strippedChannel = "strippedChannelUri";

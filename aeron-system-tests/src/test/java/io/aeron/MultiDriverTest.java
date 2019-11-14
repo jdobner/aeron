@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +17,7 @@ package io.aeron;
 
 import io.aeron.driver.MediaDriver;
 import io.aeron.logbuffer.LogBufferDescriptor;
+import org.agrona.SystemUtil;
 import org.agrona.collections.MutableInteger;
 import org.junit.After;
 import org.junit.Test;
@@ -32,7 +33,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 public class MultiDriverTest
@@ -47,7 +48,7 @@ public class MultiDriverTest
     private static final int MESSAGE_LENGTH =
         (TERM_BUFFER_LENGTH / NUM_MESSAGES_PER_TERM) - DataHeaderFlyweight.HEADER_LENGTH;
     private static final String ROOT_DIR =
-        IoUtil.tmpDirName() + "aeron-system-tests-" + UUID.randomUUID().toString() + File.separator;
+        SystemUtil.tmpDirName() + "aeron-system-tests-" + UUID.randomUUID().toString() + File.separator;
 
     private Aeron clientA;
     private Aeron clientB;
@@ -115,8 +116,8 @@ public class MultiDriverTest
 
         while (!subscriptionA.isConnected() && !subscriptionB.isConnected())
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
     }
 
@@ -135,8 +136,8 @@ public class MultiDriverTest
         {
             while (publication.offer(buffer, 0, buffer.capacity()) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final MutableInteger fragmentsRead = new MutableInteger();
@@ -204,8 +205,8 @@ public class MultiDriverTest
 
         while (!publication.isConnected() && !subscriptionA.isConnected())
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         final CountDownLatch newImageLatch = new CountDownLatch(1);
@@ -217,8 +218,8 @@ public class MultiDriverTest
         {
             while (publication.offer(buffer, 0, buffer.capacity()) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final MutableInteger fragmentsRead = new MutableInteger();

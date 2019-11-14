@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,12 +21,13 @@
 #include <iostream>
 #include <atomic>
 #include <thread>
-#include <signal.h>
-#include <Context.h>
 #include <cstdio>
+#include <signal.h>
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+
+#include "Context.h"
 
 using namespace aeron;
 using namespace aeron::util;
@@ -36,7 +37,7 @@ using namespace std::chrono;
 
 std::atomic<bool> running (true);
 
-void sigIntHandler (int param)
+void sigIntHandler(int param)
 {
     running = false;
 }
@@ -48,7 +49,7 @@ static const char optPeriod = 'u';
 struct Settings
 {
     std::string basePath = Context::defaultAeronPath();
-    int updateIntervalms = 1000;
+    int updateIntervalMs = 1000;
 };
 
 Settings parseCmdLine(CommandOptionParser& cp, int argc, char** argv)
@@ -63,7 +64,7 @@ Settings parseCmdLine(CommandOptionParser& cp, int argc, char** argv)
     Settings s;
 
     s.basePath = cp.getOption(optPath).getParam(0, s.basePath);
-    s.updateIntervalms = cp.getOption(optPeriod).getParamAsInt(0, 1, 1000000, s.updateIntervalms);
+    s.updateIntervalMs = cp.getOption(optPeriod).getParamAsInt(0, 1, 1000000, s.updateIntervalMs);
 
     return s;
 }
@@ -71,9 +72,9 @@ Settings parseCmdLine(CommandOptionParser& cp, int argc, char** argv)
 int main (int argc, char** argv)
 {
     CommandOptionParser cp;
-    cp.addOption(CommandOption (optHelp,   0, 0, "                Displays help information."));
-    cp.addOption(CommandOption (optPath,   1, 1, "basePath        Base Path to shared memory. Default: " + Context::defaultAeronPath()));
-    cp.addOption(CommandOption (optPeriod, 1, 1, "update period   Update period in millseconds. Default: 1000ms"));
+    cp.addOption(CommandOption(optHelp,   0, 0, "                Displays help information."));
+    cp.addOption(CommandOption(optPath,   1, 1, "basePath        Base Path to shared memory. Default: " + Context::defaultAeronPath()));
+    cp.addOption(CommandOption(optPeriod, 1, 1, "update period   Update period in milliseconds. Default: 1000ms"));
 
     signal (SIGINT, sigIntHandler);
 
@@ -81,15 +82,18 @@ int main (int argc, char** argv)
     {
         Settings settings = parseCmdLine(cp, argc, argv);
 
-        MemoryMappedFile::ptr_t cncFile =
-            MemoryMappedFile::mapExisting((settings.basePath + "/" + CncFileDescriptor::CNC_FILE).c_str());
+        MemoryMappedFile::ptr_t cncFile = MemoryMappedFile::mapExistingReadOnly(
+            (settings.basePath + "/" + CncFileDescriptor::CNC_FILE).c_str());
 
         const std::int32_t cncVersion = CncFileDescriptor::cncVersionVolatile(cncFile);
 
-        if (cncVersion != CncFileDescriptor::CNC_VERSION)
+        if (semanticVersionMajor(cncVersion) != semanticVersionMajor(CncFileDescriptor::CNC_VERSION))
         {
-            std::cerr << "CNC version not supported: file version=" << cncVersion << std::endl;
-            return -1;
+            std::cerr << "CNC version not supported: "
+                      << " file=" << semanticVersionToString(cncVersion)
+                      << " app=" << semanticVersionToString(CncFileDescriptor::CNC_VERSION) << std::endl;
+
+            return EXIT_FAILURE;
         }
 
         const std::int64_t clientLivenessTimeoutNs = CncFileDescriptor::clientLivenessTimeout(cncFile);
@@ -106,13 +110,23 @@ int main (int argc, char** argv)
             char currentTime[80];
 
             ::time(&rawtime);
-            ::strftime(currentTime, sizeof(currentTime) - 1, "%H:%M:%S", localtime(&rawtime));
+            struct tm localTm;
+
+#ifdef _MSC_VER
+            localtime_s(&localTm, &rawtime);
+#else
+            ::localtime_r(&rawtime, &localTm);
+#endif
+            ::strftime(currentTime, sizeof(currentTime) - 1, "%H:%M:%S", &localTm);
 
             std::printf("\033[H\033[2J");
 
             std::printf(
-                "%s - Aeron Stat (CnC v%" PRId32 "), pid %" PRId64 ", client liveness %s ns\n",
-                currentTime, cncVersion, pid, toStringWithCommas(clientLivenessTimeoutNs).c_str());
+                "%s - Aeron Stat (CnC v%s), pid %" PRId64 ", client liveness %s ns\n",
+                currentTime,
+                semanticVersionToString(cncVersion).c_str(),
+                pid,
+                toStringWithCommas(clientLivenessTimeoutNs).c_str());
             std::printf("===========================\n");
 
             counters.forEach([&](std::int32_t counterId, std::int32_t, const AtomicBuffer&, const std::string& l)
@@ -122,7 +136,7 @@ int main (int argc, char** argv)
                 std::printf("%3d: %20s - %s\n", counterId, toStringWithCommas(value).c_str(), l.c_str());
             });
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(settings.updateIntervalms));
+            std::this_thread::sleep_for(std::chrono::milliseconds(settings.updateIntervalMs));
         }
 
         std::cout << "Exiting..." << std::endl;

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -172,7 +172,7 @@ TEST (commandTests, testImageBuffersReadyFlyweight)
         ASSERT_EQ(cmd.correlationId(), -1);
         ASSERT_EQ(cmd.sessionId(), 0x02020202);
         ASSERT_EQ(cmd.streamId(), 0x01010101);
-        ASSERT_EQ(cmd.subscriberRegistrationId(), 2);
+        ASSERT_EQ(cmd.subscriptionRegistrationId(), 2);
         ASSERT_EQ(cmd.subscriberPositionId(), 1);
         ASSERT_EQ(cmd.logFileName(), logFileNameData);
         ASSERT_EQ(cmd.sourceIdentity(), sourceInfoData);

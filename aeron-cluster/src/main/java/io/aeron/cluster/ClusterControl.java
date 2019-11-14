@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,6 @@ package io.aeron.cluster;
 import io.aeron.CncFileDescriptor;
 import io.aeron.CommonContext;
 import io.aeron.cluster.client.ClusterException;
-import io.aeron.exceptions.AeronException;
 import org.agrona.DirectBuffer;
 import org.agrona.IoUtil;
 import org.agrona.concurrent.AtomicBuffer;
@@ -34,7 +33,8 @@ import static org.agrona.concurrent.status.CountersReader.RECORD_ALLOCATED;
 import static org.agrona.concurrent.status.CountersReader.TYPE_ID_OFFSET;
 
 /**
- * Toggle control {@link ToggleState}s for a cluster node such as {@link ToggleState#SUSPEND} or {@link ToggleState#RESUME}.
+ * Toggle control {@link ToggleState}s for a cluster node such as {@link ToggleState#SUSPEND} or
+ * {@link ToggleState#RESUME}. This can only be applied to the {@link io.aeron.cluster.service.Cluster.Role#LEADER}.
  */
 public class ClusterControl
 {
@@ -46,34 +46,39 @@ public class ClusterControl
     public enum ToggleState
     {
         /**
+         * Inactive state, not accepting new actions.
+         */
+        INACTIVE(0),
+
+        /**
          * Neutral state ready to accept a new action.
          */
-        NEUTRAL(0),
+        NEUTRAL(1),
 
         /**
          * Suspend processing of ingress and timers.
          */
-        SUSPEND(1),
+        SUSPEND(2),
 
         /**
          * Resume processing of ingress and timers.
          */
-        RESUME(2),
+        RESUME(3),
 
         /**
          * Take a snapshot of cluster state.
          */
-        SNAPSHOT(3),
+        SNAPSHOT(4),
 
         /**
          * Shut down the cluster in an orderly fashion by taking a snapshot first then terminating.
          */
-        SHUTDOWN(4),
+        SHUTDOWN(5),
 
         /**
          * Abort processing and terminate the cluster without taking a snapshot.
          */
-        ABORT(5);
+        ABORT(6);
 
         private final int code;
 
@@ -124,6 +129,26 @@ public class ClusterControl
         public static void reset(final AtomicCounter controlToggle)
         {
             controlToggle.set(NEUTRAL.code());
+        }
+
+        /**
+         * Activate the toggle by setting it to the {@link #NEUTRAL} state.
+         *
+         * @param controlToggle to be activated.
+         */
+        public static void activate(final AtomicCounter controlToggle)
+        {
+            controlToggle.set(NEUTRAL.code());
+        }
+
+        /**
+         * Activate the toggle by setting it to the {@link #INACTIVE} state.
+         *
+         * @param controlToggle to be deactivated.
+         */
+        public static void deactivate(final AtomicCounter controlToggle)
+        {
+            controlToggle.set(INACTIVE.code());
         }
 
         /**
@@ -184,11 +209,7 @@ public class ClusterControl
         final DirectBuffer cncMetaData = createMetaDataBuffer(cncByteBuffer);
         final int cncVersion = cncMetaData.getInt(cncVersionOffset(0));
 
-        if (CncFileDescriptor.CNC_VERSION != cncVersion)
-        {
-            throw new AeronException(
-                "Aeron CnC version does not match: version=" + cncVersion + " required=" + CNC_VERSION);
-        }
+        CncFileDescriptor.checkVersion(cncVersion);
 
         return new CountersReader(
             createCountersMetaDataBuffer(cncByteBuffer, cncMetaData),
@@ -244,7 +265,7 @@ public class ClusterControl
         }
         else
         {
-            System.out.println(toggleState + " did NOT toggle");
+            System.out.println(toggleState + " did NOT toggle: current state=" + ToggleState.get(controlToggle));
         }
     }
 

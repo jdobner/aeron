@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -54,6 +54,7 @@ typedef struct aeron_receive_channel_endpoint_stct
     aeron_int64_to_ptr_hash_map_t stream_id_to_refcnt_map;
     aeron_counter_t channel_status;
     aeron_driver_receiver_proxy_t *receiver_proxy;
+    aeron_udp_channel_transport_bindings_t *transport_bindings;
     int64_t receiver_id;
     size_t so_rcvbuf;
     bool has_receiver_released;
@@ -158,6 +159,12 @@ inline bool aeron_receive_channel_endpoint_has_receiver_released(aeron_receive_c
 inline bool aeron_receive_channel_endpoint_should_elicit_setup_message(aeron_receive_channel_endpoint_t *endpoint)
 {
     return aeron_data_packet_dispatcher_should_elicit_setup_message(&endpoint->dispatcher);
+}
+
+inline int aeron_receive_channel_endpoint_bind_addr_and_port(
+    aeron_receive_channel_endpoint_t *endpoint, char *buffer, size_t length)
+{
+    return endpoint->transport_bindings->bind_addr_and_port_func(&endpoint->transport, buffer, length);
 }
 
 #endif //AERON_RECEIVE_CHANNEL_ENDPOINT_H

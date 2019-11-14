@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,8 +15,14 @@
  */
 package io.aeron.cluster;
 
+import io.aeron.cluster.client.ClusterException;
+import io.aeron.exceptions.AeronException;
+import org.agrona.ErrorHandler;
+import org.agrona.SystemUtil;
 import org.agrona.concurrent.AgentTerminationException;
+import org.agrona.concurrent.status.CountersReader;
 
+import java.io.PrintStream;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.Assert.fail;
@@ -33,7 +39,7 @@ class TestUtil
     {
         if (Thread.currentThread().isInterrupted())
         {
-            fail("Unexpected interrupt - Test likely to have timed out");
+            fail("unexpected interrupt - test likely to have timed out");
         }
     }
 
@@ -49,8 +55,39 @@ class TestUtil
 
             if (null != wasTerminated)
             {
-                wasTerminated.lazySet(true);
+                wasTerminated.set(true);
             }
         };
+    }
+
+    public static ErrorHandler errorHandler(final int nodeId)
+    {
+        return
+            (ex) ->
+            {
+                if (ex instanceof ClusterException)
+                {
+                    if (((ClusterException)ex).category() == AeronException.Category.WARN)
+                    {
+                        return;
+                    }
+                }
+
+                System.err.println("\n*** Error in node " + nodeId + " followed by system thread dump ***\n\n");
+                ex.printStackTrace();
+
+                System.err.println();
+                System.err.println(SystemUtil.threadDump());
+            };
+    }
+
+    public static void printCounters(final CountersReader countersReader, final PrintStream out)
+    {
+        countersReader.forEach(
+            (counterId, typeId, keyBuffer, label) ->
+            {
+                final long value = countersReader.getCounterValue(counterId);
+                out.format("%3d: %,20d - %s%n", counterId, value, label);
+            });
     }
 }

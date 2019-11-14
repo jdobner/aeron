@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 package io.aeron.command;
+
+import io.aeron.ErrorCode;
+import io.aeron.exceptions.ControlProtocolException;
 
 import static org.agrona.BitUtil.SIZE_OF_LONG;
 
@@ -37,6 +40,7 @@ import static org.agrona.BitUtil.SIZE_OF_LONG;
 public class RemoveMessageFlyweight extends CorrelatedMessageFlyweight
 {
     private static final int REGISTRATION_ID_OFFSET = CORRELATION_ID_FIELD_OFFSET + SIZE_OF_LONG;
+    private static final int MINIMUM_LENGTH = REGISTRATION_ID_OFFSET + SIZE_OF_LONG;
 
     /**
      * Get the registration id field
@@ -64,5 +68,20 @@ public class RemoveMessageFlyweight extends CorrelatedMessageFlyweight
     public static int length()
     {
         return LENGTH + SIZE_OF_LONG;
+    }
+
+    /**
+     * Validate buffer length is long enough for message.
+     *
+     * @param msgTypeId type of message.
+     * @param length of message in bytes to validate.
+     */
+    public void validateLength(final int msgTypeId, final int length)
+    {
+        if (length < MINIMUM_LENGTH)
+        {
+            throw new ControlProtocolException(
+                ErrorCode.MALFORMED_COMMAND, "command=" + msgTypeId + " too short: length=" + length);
+        }
     }
 }

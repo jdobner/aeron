@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -81,6 +81,23 @@ inline aeron_queue_offer_result_t aeron_spsc_concurrent_array_queue_offer(
     AERON_PUT_ORDERED(queue->producer.tail, current_tail + 1);
 
     return AERON_OFFER_SUCCESS;
+}
+
+inline volatile void *aeron_spsc_concurrent_array_queue_poll(volatile aeron_spsc_concurrent_array_queue_t *queue)
+{
+    const uint64_t current_head = queue->consumer.head;
+    const uint64_t index = current_head & queue->mask;
+
+    volatile void *item;
+    AERON_GET_VOLATILE(item, queue->buffer[index]);
+
+    if (NULL != item)
+    {
+        AERON_PUT_ORDERED(queue->buffer[index], NULL);
+        AERON_PUT_ORDERED(queue->consumer.head, current_head + 1);
+    }
+
+    return item;
 }
 
 inline uint64_t aeron_spsc_concurrent_array_queue_drain(

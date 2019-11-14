@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -41,6 +41,16 @@ typedef struct aeron_driver_stct
 aeron_driver_t;
 
 bool aeron_is_driver_active_with_cnc(
-    aeron_mapped_file_t *cnc_map, int64_t timeout, int64_t now, aeron_log_func_t log_func);
+    aeron_mapped_file_t *cnc_map, int64_t timeout_ms, int64_t now_ms, aeron_log_func_t log_func);
+
+int32_t aeron_semantic_version_compose(uint8_t major, uint8_t minor, uint8_t patch);
+
+uint8_t aeron_semantic_version_major(int32_t version);
+
+uint8_t aeron_semantic_version_minor(int32_t version);
+
+uint8_t aeron_semantic_version_patch(int32_t version);
+
+#define AERON_CNC_VERSION (aeron_semantic_version_compose(0, 0, 16))
 
 #endif //AERON_DRIVER_H

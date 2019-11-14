@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,22 +16,19 @@
 package io.aeron.driver.media;
 
 import io.aeron.protocol.StatusMessageFlyweight;
-import org.agrona.collections.ArrayListUtil;
-import org.agrona.concurrent.NanoClock;
+import org.agrona.concurrent.CachedNanoClock;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.PortUnreachableException;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
-import java.util.ArrayList;
 
 import static io.aeron.driver.media.UdpChannelTransport.sendError;
 
 abstract class MultiDestination
 {
-    abstract int send(
-        DatagramChannel datagramChannel, ByteBuffer buffer, SendChannelEndpoint channelEndpoint, int bytesToSend);
+    abstract int send(DatagramChannel channel, ByteBuffer buffer, SendChannelEndpoint channelEndpoint, int bytesToSend);
 
     abstract void onStatusMessage(StatusMessageFlyweight msg, InetSocketAddress address);
 
@@ -52,11 +49,10 @@ abstract class MultiDestination
         int bytesSent = 0;
         try
         {
-            channelEndpoint.sendHook(buffer, destination);
-
-            buffer.position(position);
             if (datagramChannel.isOpen())
             {
+                channelEndpoint.sendHook(buffer, destination);
+                buffer.position(position);
                 bytesSent = datagramChannel.send(buffer, destination);
             }
         }
@@ -74,11 +70,13 @@ abstract class MultiDestination
 
 class DynamicMultiDestination extends MultiDestination
 {
-    private final long destinationTimeoutNs;
-    private final NanoClock nanoClock;
-    private final ArrayList<Destination> destinations = new ArrayList<>();
+    private static final Destination[] EMPTY_DESTINATIONS = new Destination[0];
 
-    DynamicMultiDestination(final NanoClock nanoClock, final long timeout)
+    private final long destinationTimeoutNs;
+    private final CachedNanoClock nanoClock;
+    private Destination[] destinations = EMPTY_DESTINATIONS;
+
+    DynamicMultiDestination(final CachedNanoClock nanoClock, final long timeout)
     {
         this.nanoClock = nanoClock;
         this.destinationTimeoutNs = timeout;
@@ -91,15 +89,12 @@ class DynamicMultiDestination extends MultiDestination
 
     void onStatusMessage(final StatusMessageFlyweight msg, final InetSocketAddress address)
     {
-        final long nowNs = nanoClock.nanoTime();
-        final ArrayList<Destination> destinations = this.destinations;
-        boolean isExisting = false;
         final long receiverId = msg.receiverId();
+        final long nowNs = nanoClock.nanoTime();
+        boolean isExisting = false;
 
-        for (int i = 0, size = destinations.size(); i < size; i++)
+        for (final Destination destination : destinations)
         {
-            final Destination destination = destinations.get(i);
-
             if (receiverId == destination.receiverId && address.getPort() == destination.port)
             {
                 destination.timeOfLastActivityNs = nowNs;
@@ -110,39 +105,47 @@ class DynamicMultiDestination extends MultiDestination
 
         if (!isExisting)
         {
-            destinations.add(new Destination(nowNs, receiverId, address));
+            add(new Destination(nowNs, receiverId, address));
         }
     }
 
     int send(
-        final DatagramChannel datagramChannel,
+        final DatagramChannel channel,
         final ByteBuffer buffer,
         final SendChannelEndpoint channelEndpoint,
         final int bytesToSend)
     {
         final long nowNs = nanoClock.nanoTime();
-        final ArrayList<Destination> destinations = this.destinations;
         final int position = buffer.position();
         int minBytesSent = bytesToSend;
+        int removed = 0;
 
-        for (int lastIndex = destinations.size() - 1, i = lastIndex; i >= 0; i--)
+        for (int lastIndex = destinations.length - 1, i = lastIndex; i >= 0; i--)
         {
-            final Destination destination = destinations.get(i);
-
+            final Destination destination = destinations[i];
             if ((destination.timeOfLastActivityNs + destinationTimeoutNs) - nowNs < 0)
             {
-                ArrayListUtil.fastUnorderedRemove(destinations, i, lastIndex--);
+                if (i != lastIndex)
+                {
+                    destinations[i] = destinations[lastIndex--];
+                }
+                removed++;
             }
             else
             {
                 minBytesSent = Math.min(
-                    minBytesSent,
-                    send(datagramChannel, buffer, channelEndpoint, bytesToSend, position, destination.address));
+                    minBytesSent, send(channel, buffer, channelEndpoint, bytesToSend, position, destination.address));
             }
+        }
+
+        if (removed > 0)
+        {
+            truncateDestinations(removed);
         }
 
         return minBytesSent;
     }
+
 
     void addDestination(final InetSocketAddress address)
     {
@@ -152,19 +155,30 @@ class DynamicMultiDestination extends MultiDestination
     {
     }
 
-    static final class Destination
+    private void add(final Destination destination)
     {
-        long timeOfLastActivityNs;
-        final long receiverId;
-        final int port;
-        final InetSocketAddress address;
+        final int length = destinations.length;
+        final Destination[] newElements = new Destination[length + 1];
 
-        Destination(final long now, final long receiverId, final InetSocketAddress address)
+        System.arraycopy(destinations, 0, newElements, 0, length);
+        newElements[length] = destination;
+        destinations = newElements;
+    }
+
+    private void truncateDestinations(final int removed)
+    {
+        final int length = destinations.length;
+        final int newLength = length - removed;
+
+        if (0 == newLength)
         {
-            this.timeOfLastActivityNs = now;
-            this.receiverId = receiverId;
-            this.address = address;
-            this.port = address.getPort();
+            destinations = EMPTY_DESTINATIONS;
+        }
+        else
+        {
+            final Destination[] newElements = new Destination[newLength];
+            System.arraycopy(destinations, 0, newElements, 0, newLength);
+            destinations = newElements;
         }
     }
 }
@@ -185,7 +199,7 @@ class ManualMultiDestination extends MultiDestination
     }
 
     int send(
-        final DatagramChannel datagramChannel,
+        final DatagramChannel channel,
         final ByteBuffer buffer,
         final SendChannelEndpoint channelEndpoint,
         final int bytesToSend)
@@ -196,8 +210,7 @@ class ManualMultiDestination extends MultiDestination
         for (final InetSocketAddress destination : destinations)
         {
             minBytesSent = Math.min(
-                minBytesSent,
-                send(datagramChannel, buffer, channelEndpoint, bytesToSend, position, destination));
+                minBytesSent, send(channel, buffer, channelEndpoint, bytesToSend, position, destination));
         }
 
         return minBytesSent;
@@ -210,7 +223,6 @@ class ManualMultiDestination extends MultiDestination
 
         System.arraycopy(destinations, 0, newElements, 0, length);
         newElements[length] = address;
-
         destinations = newElements;
     }
 
@@ -231,19 +243,44 @@ class ManualMultiDestination extends MultiDestination
 
         if (found)
         {
-            final InetSocketAddress[] oldElements = this.destinations;
+            final InetSocketAddress[] oldElements = destinations;
             final int length = oldElements.length;
-            final InetSocketAddress[] newElements = new InetSocketAddress[length - 1];
+            final int newLength = length - 1;
 
-            for (int i = 0, j = 0; i < length; i++)
+            if (0 == newLength)
             {
-                if (index != i)
-                {
-                    newElements[j++] = oldElements[i];
-                }
+                destinations = EMPTY_DESTINATIONS;
             }
+            else
+            {
+                final InetSocketAddress[] newElements = new InetSocketAddress[newLength];
 
-            this.destinations = newElements;
+                for (int i = 0, j = 0; i < length; i++)
+                {
+                    if (index != i)
+                    {
+                        newElements[j++] = oldElements[i];
+                    }
+                }
+
+                destinations = newElements;
+            }
         }
+    }
+}
+
+final class Destination
+{
+    long timeOfLastActivityNs;
+    final long receiverId;
+    final int port;
+    final InetSocketAddress address;
+
+    Destination(final long nowNs, final long receiverId, final InetSocketAddress address)
+    {
+        this.timeOfLastActivityNs = nowNs;
+        this.receiverId = receiverId;
+        this.address = address;
+        this.port = address.getPort();
     }
 }

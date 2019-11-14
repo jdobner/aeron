@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,7 +20,7 @@
 #endif
 
 #include <string.h>
-#include <sys/socket.h>
+#include "aeron_socket.h"
 #include <uri/aeron_uri.h>
 #include "aeron_driver_sender.h"
 #include "util/aeron_netutil.h"
@@ -54,8 +54,7 @@ int aeron_send_channel_endpoint_create(
     _endpoint->destination_tracker = NULL;
     if (channel->explicit_control)
     {
-        const char *control_mode =
-            aeron_uri_find_param_value(&channel->uri.params.udp.additional_params, AERON_UDP_CHANNEL_CONTROL_MODE_KEY);
+        const char *control_mode = channel->uri.params.udp.control_mode_key;
         int64_t destination_timeout_ns = AERON_UDP_DESTINATION_TRACKER_DESTINATION_TIMEOUT_NS;
 
         if (NULL != control_mode &&
@@ -70,6 +69,7 @@ int aeron_send_channel_endpoint_create(
         if (aeron_alloc((void **)&_endpoint->destination_tracker, sizeof(aeron_udp_destination_tracker_t)) < 0 ||
             aeron_udp_destination_tracker_init(
                 _endpoint->destination_tracker,
+                context->udp_channel_transport_bindings,
                 context->nano_clock,
                 destination_timeout_ns) < 0)
         {
@@ -86,15 +86,18 @@ int aeron_send_channel_endpoint_create(
     _endpoint->conductor_fields.status = AERON_SEND_CHANNEL_ENDPOINT_STATUS_ACTIVE;
     _endpoint->transport.fd = -1;
     _endpoint->channel_status.counter_id = -1;
+    _endpoint->transport_bindings = context->udp_channel_transport_bindings;
 
-    if (aeron_udp_channel_transport_init(
+    if (context->udp_channel_transport_bindings->init_func(
         &_endpoint->transport,
         (channel->multicast) ? &channel->remote_control : &channel->local_control,
         (channel->multicast) ? &channel->local_control : &channel->remote_control,
         channel->interface_index,
         (0 != channel->multicast_ttl) ? channel->multicast_ttl : context->multicast_ttl,
         context->socket_rcvbuf,
-        context->socket_sndbuf) < 0)
+        context->socket_sndbuf,
+        context,
+        AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_SENDER) < 0)
     {
         aeron_send_channel_endpoint_delete(NULL, _endpoint);
         return -1;
@@ -119,16 +122,17 @@ int aeron_send_channel_endpoint_create(
     return 0;
 }
 
-int aeron_send_channel_endpoint_delete(aeron_counters_manager_t *counters_manager, aeron_send_channel_endpoint_t *endpoint)
+int aeron_send_channel_endpoint_delete(
+    aeron_counters_manager_t *counters_manager, aeron_send_channel_endpoint_t *endpoint)
 {
     if (NULL != counters_manager && -1 != endpoint->channel_status.counter_id)
     {
-        aeron_counters_manager_free(counters_manager, (int32_t)endpoint->channel_status.counter_id);
+        aeron_counters_manager_free(counters_manager, endpoint->channel_status.counter_id);
     }
 
     aeron_int64_to_ptr_hash_map_delete(&endpoint->publication_dispatch_map);
     aeron_udp_channel_delete(endpoint->conductor_fields.udp_channel);
-    aeron_udp_channel_transport_close(&endpoint->transport);
+    endpoint->transport_bindings->close_func(&endpoint->transport);
 
     if (NULL != endpoint->destination_tracker)
     {
@@ -137,6 +141,7 @@ int aeron_send_channel_endpoint_delete(aeron_counters_manager_t *counters_manage
     }
 
     aeron_free(endpoint);
+
     return 0;
 }
 
@@ -171,7 +176,7 @@ int aeron_send_channel_sendmmsg(aeron_send_channel_endpoint_t *endpoint, struct 
             mmsghdr[i].msg_hdr.msg_namelen = AERON_ADDR_LEN(&endpoint->conductor_fields.udp_channel->remote_data);
         }
 
-        result = aeron_udp_channel_transport_sendmmsg(&endpoint->transport, mmsghdr, vlen);
+        result = endpoint->transport_bindings->sendmmsg_func(&endpoint->transport, mmsghdr, vlen);
     }
     else
     {
@@ -191,7 +196,7 @@ int aeron_send_channel_sendmsg(aeron_send_channel_endpoint_t *endpoint, struct m
         msghdr->msg_name = &endpoint->conductor_fields.udp_channel->remote_data;
         msghdr->msg_namelen = AERON_ADDR_LEN(&endpoint->conductor_fields.udp_channel->remote_data);
 
-        result = aeron_udp_channel_transport_sendmsg(&endpoint->transport, msghdr);
+        result = endpoint->transport_bindings->sendmsg_func(&endpoint->transport, msghdr);
     }
     else
     {
@@ -355,8 +360,17 @@ void aeron_send_channel_endpoint_on_rttm(
 }
 
 extern void aeron_send_channel_endpoint_sender_release(aeron_send_channel_endpoint_t *endpoint);
+
 extern bool aeron_send_channel_endpoint_has_sender_released(aeron_send_channel_endpoint_t *endpoint);
+
 extern int aeron_send_channel_endpoint_add_destination(
     aeron_send_channel_endpoint_t *endpoint, struct sockaddr_storage *addr);
+
 extern int aeron_send_channel_endpoint_remove_destination(
     aeron_send_channel_endpoint_t *endpoint, struct sockaddr_storage *addr);
+
+extern bool aeron_send_channel_endpoint_tags_match(
+    aeron_send_channel_endpoint_t *endpoint, aeron_udp_channel_t *channel);
+
+extern int aeron_send_channel_endpoint_bind_addr_and_port(
+    aeron_send_channel_endpoint_t *endpoint, char *buffer, size_t length);

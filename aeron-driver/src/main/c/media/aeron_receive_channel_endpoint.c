@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,6 +16,7 @@
 
 #include <stdio.h>
 #include <inttypes.h>
+#include "aeron_socket.h"
 #include "aeron_system_counters.h"
 #include "util/aeron_netutil.h"
 #include "util/aeron_error.h"
@@ -63,21 +64,24 @@ int aeron_receive_channel_endpoint_create(
     _endpoint->conductor_fields.status = AERON_RECEIVE_CHANNEL_ENDPOINT_STATUS_ACTIVE;
     _endpoint->transport.fd = -1;
     _endpoint->channel_status.counter_id = -1;
+    _endpoint->transport_bindings = context->udp_channel_transport_bindings;
 
-    if (aeron_udp_channel_transport_init(
+    if (context->udp_channel_transport_bindings->init_func(
         &_endpoint->transport,
         &channel->remote_data,
         &channel->local_data,
         channel->interface_index,
         (0 != channel->multicast_ttl) ? channel->multicast_ttl : context->multicast_ttl,
         context->socket_rcvbuf,
-        context->socket_sndbuf) < 0)
+        context->socket_sndbuf,
+        context,
+        AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_RECEIVER) < 0)
     {
         aeron_receive_channel_endpoint_delete(NULL, _endpoint);
         return -1;
     }
 
-    if (aeron_udp_channel_transport_get_so_rcvbuf(&_endpoint->transport, &_endpoint->so_rcvbuf) < 0)
+    if (context->udp_channel_transport_bindings->get_so_rcvbuf_func(&_endpoint->transport, &_endpoint->so_rcvbuf) < 0)
     {
         aeron_receive_channel_endpoint_delete(NULL, _endpoint);
         return -1;
@@ -112,22 +116,24 @@ int aeron_receive_channel_endpoint_delete(
 {
     if (NULL != counters_manager && -1 != endpoint->channel_status.counter_id)
     {
-        aeron_counters_manager_free(counters_manager, (int32_t)endpoint->channel_status.counter_id);
+        aeron_counters_manager_free(counters_manager, endpoint->channel_status.counter_id);
     }
 
-    aeron_int64_to_ptr_hash_map_for_each(&endpoint->stream_id_to_refcnt_map, aeron_receive_channel_endpoint_free_stream_id_refcnt, endpoint);
+    aeron_int64_to_ptr_hash_map_for_each(
+        &endpoint->stream_id_to_refcnt_map, aeron_receive_channel_endpoint_free_stream_id_refcnt, endpoint);
 
     aeron_int64_to_ptr_hash_map_delete(&endpoint->stream_id_to_refcnt_map);
     aeron_data_packet_dispatcher_close(&endpoint->dispatcher);
     aeron_udp_channel_delete(endpoint->conductor_fields.udp_channel);
-    aeron_udp_channel_transport_close(&endpoint->transport);
+    endpoint->transport_bindings->close_func(&endpoint->transport);
     aeron_free(endpoint);
+
     return 0;
 }
 
 int aeron_receive_channel_endpoint_sendmsg(aeron_receive_channel_endpoint_t *endpoint, struct msghdr *msghdr)
 {
-    return aeron_udp_channel_transport_sendmsg(&endpoint->transport, msghdr);
+    return endpoint->transport_bindings->sendmsg_func(&endpoint->transport, msghdr);
 }
 
 int aeron_receive_channel_endpoint_send_sm(
@@ -509,3 +515,5 @@ extern size_t aeron_receive_channel_endpoint_stream_count(aeron_receive_channel_
 extern void aeron_receive_channel_endpoint_receiver_release(aeron_receive_channel_endpoint_t *endpoint);
 extern bool aeron_receive_channel_endpoint_has_receiver_released(aeron_receive_channel_endpoint_t *endpoint);
 extern bool aeron_receive_channel_endpoint_should_elicit_setup_message(aeron_receive_channel_endpoint_t *endpoint);
+extern int aeron_receive_channel_endpoint_bind_addr_and_port(
+    aeron_receive_channel_endpoint_t *endpoint, char *buffer, size_t length);

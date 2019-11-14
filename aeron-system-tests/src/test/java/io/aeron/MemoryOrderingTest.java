@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -44,6 +44,7 @@ public class MemoryOrderingTest
 
     private final MediaDriver driver = MediaDriver.launch(new MediaDriver.Context()
         .errorHandler(Throwable::printStackTrace)
+        .dirDeleteOnShutdown(true)
         .threadingMode(ThreadingMode.SHARED)
         .publicationTermBufferLength(TERM_BUFFER_LENGTH));
 
@@ -54,20 +55,18 @@ public class MemoryOrderingTest
     {
         CloseHelper.close(aeron);
         CloseHelper.close(driver);
-        driver.context().deleteAeronDirectory();
     }
 
-    @Test(timeout = 10_000)
+    @Test(timeout = 20_000)
     public void shouldReceiveMessagesInOrderWithFirstLongWordIntact() throws Exception
     {
-        final UnsafeBuffer srcBuffer = new UnsafeBuffer(ByteBuffer.allocateDirect(MESSAGE_LENGTH));
+        final UnsafeBuffer srcBuffer = new UnsafeBuffer(ByteBuffer.allocate(MESSAGE_LENGTH));
         srcBuffer.setMemory(0, MESSAGE_LENGTH, (byte)7);
 
         try (Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID);
             Publication publication = aeron.addPublication(CHANNEL, STREAM_ID))
         {
-            final BusySpinIdleStrategy idleStrategy = new BusySpinIdleStrategy();
-
+            final IdleStrategy idleStrategy = YieldingIdleStrategy.INSTANCE;
             final Thread subscriberThread = new Thread(new Subscriber(subscription));
             subscriberThread.setDaemon(true);
             subscriberThread.start();
@@ -88,19 +87,19 @@ public class MemoryOrderingTest
                         fail(failedMessage);
                     }
 
-                    SystemTest.checkInterruptedStatus();
                     idleStrategy.idle();
+                    SystemTest.checkInterruptedStatus();
                 }
 
                 if (i % BURST_LENGTH == 0)
                 {
-                    final long timeout = System.nanoTime() + INTER_BURST_DURATION_NS;
-                    long now;
+                    final long timeoutNs = System.nanoTime() + INTER_BURST_DURATION_NS;
+                    long nowNs;
                     do
                     {
-                        now = System.nanoTime();
+                        nowNs = System.nanoTime();
                     }
-                    while (now < timeout);
+                    while ((timeoutNs - nowNs) < 0);
                 }
             }
 
@@ -108,17 +107,16 @@ public class MemoryOrderingTest
         }
     }
 
-    @Test(timeout = 10_000)
+    @Test(timeout = 20_000)
     public void shouldReceiveMessagesInOrderWithFirstLongWordIntactFromExclusivePublication() throws Exception
     {
-        final UnsafeBuffer srcBuffer = new UnsafeBuffer(ByteBuffer.allocateDirect(MESSAGE_LENGTH));
+        final UnsafeBuffer srcBuffer = new UnsafeBuffer(ByteBuffer.allocate(MESSAGE_LENGTH));
         srcBuffer.setMemory(0, MESSAGE_LENGTH, (byte)7);
 
         try (Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID);
             ExclusivePublication publication = aeron.addExclusivePublication(CHANNEL, STREAM_ID))
         {
-            final BusySpinIdleStrategy idleStrategy = new BusySpinIdleStrategy();
-
+            final IdleStrategy idleStrategy = YieldingIdleStrategy.INSTANCE;
             final Thread subscriberThread = new Thread(new Subscriber(subscription));
             subscriberThread.setDaemon(true);
             subscriberThread.start();
@@ -134,24 +132,24 @@ public class MemoryOrderingTest
 
                 while (publication.offer(srcBuffer) < 0L)
                 {
-                    SystemTest.checkInterruptedStatus();
                     if (null != failedMessage)
                     {
                         fail(failedMessage);
                     }
 
                     idleStrategy.idle();
+                    SystemTest.checkInterruptedStatus();
                 }
 
                 if (i % BURST_LENGTH == 0)
                 {
-                    final long timeout = System.nanoTime() + INTER_BURST_DURATION_NS;
-                    long now;
+                    final long timeoutNs = System.nanoTime() + INTER_BURST_DURATION_NS;
+                    long nowNs;
                     do
                     {
-                        now = System.nanoTime();
+                        nowNs = System.nanoTime();
                     }
-                    while (now < timeout);
+                    while ((timeoutNs - nowNs) > 0);
                 }
             }
 
@@ -174,7 +172,7 @@ public class MemoryOrderingTest
 
         public void run()
         {
-            final BusySpinIdleStrategy idleStrategy = new BusySpinIdleStrategy();
+            final IdleStrategy idleStrategy = YieldingIdleStrategy.INSTANCE;
 
             while (messageNum < NUM_MESSAGES && null == failedMessage)
             {

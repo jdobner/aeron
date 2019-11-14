@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,7 +19,7 @@
 #define _GNU_SOURCE
 #endif
 
-#include <sys/socket.h>
+#include "aeron_socket.h"
 #include <stdio.h>
 #include "util/aeron_arrayutil.h"
 #include "media/aeron_receive_channel_endpoint.h"
@@ -40,7 +40,8 @@ int aeron_driver_receiver_init(
     aeron_system_counters_t *system_counters,
     aeron_distinct_error_log_t *error_log)
 {
-    if (aeron_udp_transport_poller_init(&receiver->poller) < 0)
+    if (context->udp_channel_transport_bindings->poller_init_func(
+        &receiver->poller, context, AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_RECEIVER) < 0)
     {
         return -1;
     }
@@ -73,20 +74,20 @@ int aeron_driver_receiver_init(
     receiver->pending_setups.capacity = 0;
 
     receiver->context = context;
+    receiver->poller_poll_func = context->udp_channel_transport_bindings->poller_poll_func;
+    receiver->recvmmsg_func = context->udp_channel_transport_bindings->recvmmsg_func;
     receiver->error_log = error_log;
 
     receiver->receiver_proxy.command_queue = &context->receiver_command_queue;
-    receiver->receiver_proxy.fail_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_RECEIVER_PROXY_FAILS);
+    receiver->receiver_proxy.fail_counter = aeron_system_counter_addr(
+        system_counters, AERON_SYSTEM_COUNTER_RECEIVER_PROXY_FAILS);
     receiver->receiver_proxy.threading_mode = context->threading_mode;
     receiver->receiver_proxy.receiver = receiver;
 
-    receiver->errors_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_ERRORS);
-    receiver->invalid_frames_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_INVALID_PACKETS);
-    receiver->total_bytes_received_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_BYTES_RECEIVED);
+    receiver->errors_counter = aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_ERRORS);
+    receiver->invalid_frames_counter = aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_INVALID_PACKETS);
+    receiver->total_bytes_received_counter =  aeron_system_counter_addr(
+        system_counters, AERON_SYSTEM_COUNTER_BYTES_RECEIVED);
 
     return 0;
 }
@@ -105,9 +106,8 @@ int aeron_driver_receiver_do_work(void *clientd)
     int64_t bytes_received = 0;
     int work_count = 0;
 
-    work_count +=
-        aeron_spsc_concurrent_array_queue_drain(
-            receiver->receiver_proxy.command_queue, aeron_driver_receiver_on_command, receiver, 10);
+    work_count += aeron_spsc_concurrent_array_queue_drain(
+        receiver->receiver_proxy.command_queue, aeron_driver_receiver_on_command, receiver, 10);
 
     for (size_t i = 0; i < AERON_DRIVER_RECEIVER_NUM_RECV_BUFFERS; i++)
     {
@@ -121,11 +121,13 @@ int aeron_driver_receiver_do_work(void *clientd)
         mmsghdr[i].msg_len = 0;
     }
 
-    int poll_result = aeron_udp_transport_poller_poll(
+    int poll_result = receiver->poller_poll_func(
         &receiver->poller,
         mmsghdr,
         AERON_DRIVER_RECEIVER_NUM_RECV_BUFFERS,
+        &bytes_received,
         aeron_receive_channel_endpoint_dispatch,
+        receiver->recvmmsg_func,
         receiver);
 
     if (poll_result < 0)
@@ -133,11 +135,7 @@ int aeron_driver_receiver_do_work(void *clientd)
         AERON_DRIVER_RECEIVER_ERROR(receiver, "receiver poller_poll: %s", aeron_errmsg());
     }
 
-    for (int i = 0; i < poll_result; i++)
-    {
-        bytes_received += mmsghdr[i].msg_len;
-        work_count++;
-    }
+    work_count = (bytes_received > 0) ? (int)bytes_received : 0;
 
     aeron_counter_add_ordered(receiver->total_bytes_received_counter, bytes_received);
 
@@ -189,8 +187,8 @@ int aeron_driver_receiver_do_work(void *clientd)
                 aeron_array_fast_unordered_remove(
                     (uint8_t *) receiver->pending_setups.array,
                     sizeof(aeron_driver_receiver_pending_setup_entry_t),
-                    (size_t) i,
-                    (size_t) last_index);
+                    (size_t)i,
+                    (size_t)last_index);
                 last_index--;
                 receiver->pending_setups.length--;
             }
@@ -228,7 +226,7 @@ void aeron_driver_receiver_on_close(void *clientd)
     aeron_free(receiver->images.array);
     aeron_free(receiver->pending_setups.array);
 
-    aeron_udp_transport_poller_close(&receiver->poller);
+    receiver->context->udp_channel_transport_bindings->poller_close_func(&receiver->poller);
 }
 
 void aeron_driver_receiver_on_add_endpoint(void *clientd, void *command)
@@ -238,7 +236,7 @@ void aeron_driver_receiver_on_add_endpoint(void *clientd, void *command)
     aeron_receive_channel_endpoint_t *endpoint = (aeron_receive_channel_endpoint_t *)cmd->item;
     aeron_udp_channel_t *udp_channel = endpoint->conductor_fields.udp_channel;
 
-    if (aeron_udp_transport_poller_add(&receiver->poller, &endpoint->transport) < 0)
+    if (receiver->context->udp_channel_transport_bindings->poller_add_func(&receiver->poller, &endpoint->transport) < 0)
     {
         AERON_DRIVER_RECEIVER_ERROR(receiver, "receiver on_add_endpoint: %s", aeron_errmsg());
     }
@@ -273,7 +271,7 @@ void aeron_driver_receiver_on_remove_endpoint(void *clientd, void *command)
     aeron_command_base_t *cmd = (aeron_command_base_t *)command;
     aeron_receive_channel_endpoint_t *endpoint = (aeron_receive_channel_endpoint_t *)cmd->item;
 
-    if (aeron_udp_transport_poller_remove(&receiver->poller, &endpoint->transport) < 0)
+    if (receiver->context->udp_channel_transport_bindings->poller_remove_func(&receiver->poller, &endpoint->transport) < 0)
     {
         AERON_DRIVER_RECEIVER_ERROR(receiver, "receiver on_remove_endpoint: %s", aeron_errmsg());
     }
@@ -287,8 +285,8 @@ void aeron_driver_receiver_on_remove_endpoint(void *clientd, void *command)
             aeron_array_fast_unordered_remove(
                 (uint8_t *) receiver->pending_setups.array,
                 sizeof(aeron_driver_receiver_pending_setup_entry_t),
-                (size_t) i,
-                (size_t) last_index);
+                (size_t)i,
+                (size_t)last_index);
             last_index--;
             receiver->pending_setups.length--;
         }

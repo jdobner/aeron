@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,18 +16,19 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <signal.h>
-#include <util/CommandOptionParser.h>
 #include <thread>
+#include <signal.h>
+
 #include "Configuration.h"
-#include <Aeron.h>
+#include "util/CommandOptionParser.h"
+#include "Aeron.h"
 
 using namespace aeron::util;
 using namespace aeron;
 
 std::atomic<bool> running (true);
 
-void sigIntHandler (int param)
+void sigIntHandler(int param)
 {
     running = false;
 }
@@ -75,21 +76,13 @@ fragment_handler_t printStringMessage()
     };
 }
 
-void printEndOfStream(Image &image)
-{
-    std::cout << "End Of Stream image correlationId=" << image.correlationId()
-        << " sessionId=" << image.sessionId()
-        << " from " << image.sourceIdentity()
-        << std::endl;
-}
-
 int main(int argc, char** argv)
 {
     CommandOptionParser cp;
-    cp.addOption(CommandOption (optHelp,     0, 0, "                Displays help information."));
-    cp.addOption(CommandOption (optPrefix,   1, 1, "dir             Prefix directory for aeron driver."));
-    cp.addOption(CommandOption (optChannel,  1, 1, "channel         Channel."));
-    cp.addOption(CommandOption (optStreamId, 1, 1, "streamId        Stream ID."));
+    cp.addOption(CommandOption(optHelp,     0, 0, "            Displays help information."));
+    cp.addOption(CommandOption(optPrefix,   1, 1, "dir         Prefix directory for aeron driver."));
+    cp.addOption(CommandOption(optChannel,  1, 1, "channel     Channel."));
+    cp.addOption(CommandOption(optStreamId, 1, 1, "streamId    Stream ID."));
 
     signal (SIGINT, sigIntHandler);
 
@@ -101,7 +94,7 @@ int main(int argc, char** argv)
 
         aeron::Context context;
 
-        if (settings.dirPrefix != "")
+        if (!settings.dirPrefix.empty())
         {
             context.aeronDir(settings.dirPrefix);
         }
@@ -140,27 +133,15 @@ int main(int argc, char** argv)
         const std::int64_t channelStatus = subscription->channelStatus();
 
         std::cout << "Subscription channel status (id=" << subscription->channelStatusId() << ") "
-            << ((channelStatus == ChannelEndpointStatus::CHANNEL_ENDPOINT_ACTIVE) ?
-                "ACTIVE" : std::to_string(channelStatus))
+            << (channelStatus == ChannelEndpointStatus::CHANNEL_ENDPOINT_ACTIVE ? "ACTIVE" : std::to_string(channelStatus))
             << std::endl;
 
         fragment_handler_t handler = printStringMessage();
         SleepingIdleStrategy idleStrategy(IDLE_SLEEP_MS);
 
-        bool reachedEos = false;
-
         while (running)
         {
             const int fragmentsRead = subscription->poll(handler, FRAGMENTS_LIMIT);
-
-            if (0 == fragmentsRead)
-            {
-                if (!reachedEos && subscription->pollEndOfStreams(printEndOfStream) > 0)
-                {
-                    reachedEos = true;
-                }
-            }
-
             idleStrategy.idle(fragmentsRead);
         }
 

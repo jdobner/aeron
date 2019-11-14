@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -43,7 +43,7 @@ public class RateSubscriber
 
     public static void main(final String[] args) throws Exception
     {
-        System.out.println("Subscribing to " + CHANNEL + " on stream Id " + STREAM_ID);
+        System.out.println("Subscribing to " + CHANNEL + " on stream id " + STREAM_ID);
 
         final MediaDriver driver = EMBEDDED_MEDIA_DRIVER ? MediaDriver.launchEmbedded() : null;
         final ExecutorService executor = Executors.newFixedThreadPool(1);

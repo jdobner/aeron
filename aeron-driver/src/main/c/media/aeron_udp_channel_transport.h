@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,17 +17,16 @@
 #ifndef AERON_UDP_CHANNEL_TRANSPORT_H
 #define AERON_UDP_CHANNEL_TRANSPORT_H
 
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include "aeron_socket.h"
 
 #include "aeron_driver_common.h"
-
-typedef int aeron_fd_t;
+#include "aeron_udp_channel_transport_bindings.h"
 
 typedef struct aeron_udp_channel_transport_stct
 {
     aeron_fd_t fd;
     void *dispatch_clientd;
+    void *bindings_clientd;
 }
 aeron_udp_channel_transport_t;
 
@@ -40,7 +39,9 @@ int aeron_udp_channel_transport_init(
     unsigned int multicast_if_index,
     uint8_t ttl,
     size_t socket_rcvbuf,
-    size_t socket_sndbuf);
+    size_t socket_sndbuf,
+    aeron_driver_context_t *context,
+    aeron_udp_channel_transport_affinity_t affinity);
 
 int aeron_udp_channel_transport_close(aeron_udp_channel_transport_t *transport);
 
@@ -50,6 +51,7 @@ int aeron_udp_channel_transport_recvmmsg(
     aeron_udp_channel_transport_t *transport,
     struct mmsghdr *msgvec,
     size_t vlen,
+    int64_t *bytes_rcved,
     aeron_udp_transport_recv_func_t recv_func,
     void *clientd);
 
@@ -63,5 +65,7 @@ int aeron_udp_channel_transport_sendmsg(
     struct msghdr *message);
 
 int aeron_udp_channel_transport_get_so_rcvbuf(aeron_udp_channel_transport_t *transport, size_t *so_rcvbuf);
+int aeron_udp_channel_transport_bind_addr_and_port(
+    aeron_udp_channel_transport_t *transport, char *buffer, size_t length);
 
 #endif //AERON_UDP_CHANNEL_TRANSPORT_H

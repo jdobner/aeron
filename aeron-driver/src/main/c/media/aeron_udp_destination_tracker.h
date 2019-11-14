@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,7 +17,7 @@
 #ifndef AERON_UDP_DESTINATION_TRACKER_H
 #define AERON_UDP_DESTINATION_TRACKER_H
 
-#include <netinet/in.h>
+#include "aeron_socket.h"
 #include "aeronmd.h"
 #include "aeron_udp_channel_transport.h"
 
@@ -26,9 +26,9 @@
 
 typedef struct aeron_udp_destination_entry_stct
 {
-    struct sockaddr_storage addr;
     int64_t time_of_last_activity_ns;
     int64_t receiver_id;
+    struct sockaddr_storage addr;
 }
 aeron_udp_destination_entry_t;
 
@@ -42,14 +42,18 @@ typedef struct aeron_udp_destination_tracker_stct
     }
     destinations;
 
+    bool is_manual_control_mode;
     aeron_clock_func_t nano_clock;
     int64_t destination_timeout_ns;
-    bool is_manual_control_mode;
+    aeron_udp_channel_transport_bindings_t *transport_bindings;
 }
 aeron_udp_destination_tracker_t;
 
 int aeron_udp_destination_tracker_init(
-    aeron_udp_destination_tracker_t *tracker, aeron_clock_func_t clock, int64_t timeout);
+    aeron_udp_destination_tracker_t *tracker,
+    aeron_udp_channel_transport_bindings_t *transport_bindings,
+    aeron_clock_func_t clock,
+    int64_t timeout_ns);
 int aeron_udp_destination_tracker_close(aeron_udp_destination_tracker_t *tracker);
 
 int aeron_udp_destination_tracker_sendmmsg(

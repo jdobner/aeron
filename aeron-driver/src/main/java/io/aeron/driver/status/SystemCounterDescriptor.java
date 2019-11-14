@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -41,7 +41,7 @@ public enum SystemCounterDescriptor
     ERRORS(15, "Errors"),
     SHORT_SENDS(16, "Short sends"),
     FREE_FAILS(17, "Failed attempts to free log buffers"),
-    SENDER_FLOW_CONTROL_LIMITS(18, "Sender flow control limits applied"),
+    SENDER_FLOW_CONTROL_LIMITS(18, "Sender flow control limits, i.e. back-pressure events"),
     UNBLOCKED_PUBLICATIONS(19, "Unblocked Publications"),
     UNBLOCKED_COMMANDS(20, "Unblocked Control Commands"),
     POSSIBLE_TTL_ASYMMETRY(21, "Possible TTL Asymmetry"),

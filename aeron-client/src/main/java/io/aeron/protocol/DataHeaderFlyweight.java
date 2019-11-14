@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,7 +24,7 @@ import static java.nio.ByteOrder.LITTLE_ENDIAN;
 import static org.agrona.BitUtil.CACHE_LINE_LENGTH;
 
 /**
- * HeaderFlyweight for Data Frame header of a message fragment.
+ * Flyweight for Data Frame header of a message fragment.
  * <p>
  * <a target="_blank" href="https://github.com/real-logic/aeron/wiki/Protocol-Specification#data-frame">Data Frame</a>
  * wiki page.
@@ -32,32 +32,32 @@ import static org.agrona.BitUtil.CACHE_LINE_LENGTH;
 public class DataHeaderFlyweight extends HeaderFlyweight
 {
     /**
-     * Length of the Data Header
+     * Length of the Data Header.
      */
     public static final int HEADER_LENGTH = 32;
 
     /**
-     * Begin Flag
+     * (B) - Fragment that Begins a message Flag.
      */
     public static final short BEGIN_FLAG = 0x80;
 
     /**
-     * End Flag
+     * (E) - Fragment that Ends a message Flag.
      */
     public static final short END_FLAG = 0x40;
 
     /**
-     * Begin and End Flags
+     * Begin and End Flags.
      */
     public static final short BEGIN_AND_END_FLAGS = BEGIN_FLAG | END_FLAG;
 
     /**
-     * End of Stream Flag
+     * (S) - End of Stream (EOS) Flag for heartbeats after the publication is closed.
      */
     public static final short EOS_FLAG = 0x20;
 
     /**
-     * Begin, End, and End of Stream Flags
+     * Begin, End, and EOS Flags.
      */
     public static final short BEGIN_END_AND_EOS_FLAGS = BEGIN_FLAG | END_FLAG | EOS_FLAG;
 
@@ -85,6 +85,18 @@ public class DataHeaderFlyweight extends HeaderFlyweight
     }
 
     /**
+     * Get the fragment length field from the header.
+     *
+     * @param termBuffer  container the header.
+     * @param frameOffset in the buffer where the header starts.
+     * @return the fragment length field from the header.
+     */
+    public static int fragmentLength(final UnsafeBuffer termBuffer, final int frameOffset)
+    {
+        return termBuffer.getInt(frameOffset + FRAME_LENGTH_FIELD_OFFSET, LITTLE_ENDIAN);
+    }
+
+    /**
      * Is the frame at data frame at the beginning of packet a heartbeat message?
      *
      * @param packet containing the data frame.
@@ -108,25 +120,32 @@ public class DataHeaderFlyweight extends HeaderFlyweight
     }
 
     /**
-     * return session id field
+     * Get the session-id field from the header.
      *
-     * @return session id field
+     * @return the session-id field from the header.
      */
     public int sessionId()
     {
         return getInt(SESSION_ID_FIELD_OFFSET, LITTLE_ENDIAN);
     }
 
+    /**
+     * Get the session-id field from the header.
+     *
+     * @param termBuffer  container the header.
+     * @param frameOffset in the buffer where the header starts.
+     * @return the session-id field from the header.
+     */
     public static int sessionId(final UnsafeBuffer termBuffer, final int frameOffset)
     {
         return termBuffer.getInt(frameOffset + SESSION_ID_FIELD_OFFSET, LITTLE_ENDIAN);
     }
 
     /**
-     * set session id field
+     * Set the session-id field in the header.
      *
-     * @param sessionId field value
-     * @return flyweight
+     * @param sessionId value to set.
+     * @return this for a fluent API.
      */
     public DataHeaderFlyweight sessionId(final int sessionId)
     {
@@ -136,25 +155,32 @@ public class DataHeaderFlyweight extends HeaderFlyweight
     }
 
     /**
-     * return stream id field
+     * Get the stream-id field from the header.
      *
-     * @return stream id field
+     * @return the stream-id field from the header.
      */
     public int streamId()
     {
         return getInt(STREAM_ID_FIELD_OFFSET, LITTLE_ENDIAN);
     }
 
+    /**
+     * Get the stream-id field from the header.
+     *
+     * @param termBuffer  container the header.
+     * @param frameOffset in the buffer where the header starts.
+     * @return the stream-id field from the header.
+     */
     public static int streamId(final UnsafeBuffer termBuffer, final int frameOffset)
     {
         return termBuffer.getInt(frameOffset + STREAM_ID_FIELD_OFFSET, LITTLE_ENDIAN);
     }
 
     /**
-     * set stream id field
+     * Set the session-id field in the header.
      *
-     * @param streamId field value
-     * @return flyweight
+     * @param streamId value to set.
+     * @return this for a fluent API.
      */
     public DataHeaderFlyweight streamId(final int streamId)
     {
@@ -164,25 +190,32 @@ public class DataHeaderFlyweight extends HeaderFlyweight
     }
 
     /**
-     * return term id field
+     * Get the term-id field from the header.
      *
-     * @return term id field
+     * @return the term-id field from the header.
      */
     public int termId()
     {
         return getInt(TERM_ID_FIELD_OFFSET, LITTLE_ENDIAN);
     }
 
+    /**
+     * Get the term-id field from the header.
+     *
+     * @param termBuffer  container the header.
+     * @param frameOffset in the buffer where the header starts.
+     * @return the term-id field from the header.
+     */
     public static int termId(final UnsafeBuffer termBuffer, final int frameOffset)
     {
         return termBuffer.getInt(frameOffset + TERM_ID_FIELD_OFFSET, LITTLE_ENDIAN);
     }
 
     /**
-     * set term id field
+     * Set the term-id field in the header.
      *
-     * @param termId field value
-     * @return flyweight
+     * @param termId value to set.
+     * @return this for a fluent API.
      */
     public DataHeaderFlyweight termId(final int termId)
     {
@@ -192,25 +225,32 @@ public class DataHeaderFlyweight extends HeaderFlyweight
     }
 
     /**
-     * return term offset field
+     * Get the term-offset field from the header.
      *
-     * @return term offset field
+     * @return the term-offset field from the header.
      */
     public int termOffset()
     {
         return getInt(TERM_OFFSET_FIELD_OFFSET, LITTLE_ENDIAN);
     }
 
+    /**
+     * Get the term-offset field from the header.
+     *
+     * @param termBuffer  container the header.
+     * @param frameOffset in the buffer where the header starts.
+     * @return the term-offset field from the header.
+     */
     public static int termOffset(final UnsafeBuffer termBuffer, final int frameOffset)
     {
         return termBuffer.getInt(frameOffset + TERM_OFFSET_FIELD_OFFSET, LITTLE_ENDIAN);
     }
 
     /**
-     * set term offset field
+     * Set the term-offset field in the header.
      *
-     * @param termOffset field value
-     * @return flyweight
+     * @param termOffset value to set.
+     * @return this for a fluent API.
      */
     public DataHeaderFlyweight termOffset(final int termOffset)
     {
@@ -227,6 +267,18 @@ public class DataHeaderFlyweight extends HeaderFlyweight
     public long reservedValue()
     {
         return getLong(RESERVED_VALUE_OFFSET, LITTLE_ENDIAN);
+    }
+
+    /**
+     * Get the reserved value field from the header.
+     *
+     * @param termBuffer  container the header.
+     * @param frameOffset in the buffer where the header starts.
+     * @return the reserved value field from the header.
+     */
+    public static long reservedValue(final UnsafeBuffer termBuffer, final int frameOffset)
+    {
+        return termBuffer.getLong(frameOffset + RESERVED_VALUE_OFFSET, LITTLE_ENDIAN);
     }
 
     /**
@@ -278,21 +330,16 @@ public class DataHeaderFlyweight extends HeaderFlyweight
 
     public String toString()
     {
-        final StringBuilder sb = new StringBuilder();
-        final String formattedFlags = String.format("%1$8s", Integer.toBinaryString(flags())).replace(' ', '0');
-
-        sb.append("DATA Header{")
-            .append("frame_length=").append(frameLength())
-            .append(" version=").append(version())
-            .append(" flags=").append(formattedFlags)
-            .append(" type=").append(headerType())
-            .append(" term_offset=").append(termOffset())
-            .append(" session_id=").append(sessionId())
-            .append(" stream_id=").append(streamId())
-            .append(" term_id=").append(termId())
-            .append(" reserved_value=").append(reservedValue())
-            .append("}");
-
-        return sb.toString();
+        return "DATA Header{" +
+            "frame-length=" + frameLength() +
+            " version=" + version() +
+            " flags=" + String.valueOf(flagsToChars(flags())) +
+            " type=" + headerType() +
+            " term-offset=" + termOffset() +
+            " session-id=" + sessionId() +
+            " stream-id=" + streamId() +
+            " term-id=" + termId() +
+            " reserved-value=" + reservedValue() +
+            "}";
     }
 }

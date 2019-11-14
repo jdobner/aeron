@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,6 +22,7 @@ import org.agrona.ManagedResource;
 import org.agrona.concurrent.UnsafeBuffer;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
@@ -136,7 +137,7 @@ public class LogBuffers implements AutoCloseable, ManagedResource
         }
         catch (final IOException ex)
         {
-            throw new RuntimeException(ex);
+            throw new UncheckedIOException(ex);
         }
         catch (final IllegalStateException ex)
         {
@@ -182,14 +183,35 @@ public class LogBuffers implements AutoCloseable, ManagedResource
         return fileChannel;
     }
 
-    public void close()
+    /**
+     * Pre touch memory pages so they are faulted in to be available before access.
+     */
+    public void preTouch()
     {
+        final int value = 0;
+        final int pageSize = LogBufferDescriptor.pageSize(logMetaDataBuffer);
+        final UnsafeBuffer atomicBuffer = new UnsafeBuffer();
+
         for (final MappedByteBuffer buffer : mappedByteBuffers)
         {
-            IoUtil.unmap(buffer);
-        }
+            atomicBuffer.wrap(buffer);
 
+            for (int i = 0, length = atomicBuffer.capacity(); i < length; i += pageSize)
+            {
+                atomicBuffer.compareAndSetInt(i, value, value);
+            }
+        }
+    }
+
+    public void close()
+    {
         CloseHelper.close(fileChannel);
+
+        for (int i = 0, length = mappedByteBuffers.length; i < length; i++)
+        {
+            IoUtil.unmap(mappedByteBuffers[i]);
+            mappedByteBuffers[i] = null;
+        }
     }
 
     /**

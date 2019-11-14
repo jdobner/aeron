@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -61,12 +61,13 @@ aeron_system_counter_t;
 
 typedef struct aeron_system_counters_stct
 {
-    aeron_counters_manager_t *manager;
     int32_t *counter_ids;
+    aeron_counters_manager_t *manager;
 }
 aeron_system_counters_t;
 
 int aeron_system_counters_init(aeron_system_counters_t *counters, aeron_counters_manager_t *manager);
+
 void aeron_system_counters_close(aeron_system_counters_t *counters);
 
 inline int64_t *aeron_system_counter_addr(aeron_system_counters_t *counters, aeron_system_counter_enum_t type)

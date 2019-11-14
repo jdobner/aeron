@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -131,6 +131,12 @@ public class RecordingEventsPoller implements FragmentHandler
     {
         messageHeaderDecoder.wrap(buffer, offset);
 
+        final int schemaId = messageHeaderDecoder.schemaId();
+        if (schemaId != MessageHeaderDecoder.SCHEMA_ID)
+        {
+            throw new ArchiveException("expected schemaId=" + MessageHeaderDecoder.SCHEMA_ID + ", actual=" + schemaId);
+        }
+
         templateId = messageHeaderDecoder.templateId();
         switch (templateId)
         {
@@ -145,6 +151,7 @@ public class RecordingEventsPoller implements FragmentHandler
                 recordingStartPosition = recordingStartedDecoder.startPosition();
                 recordingPosition = recordingStartPosition;
                 recordingStopPosition = Aeron.NULL_VALUE;
+                pollComplete = true;
                 break;
 
             case RecordingProgressDecoder.TEMPLATE_ID:
@@ -158,6 +165,7 @@ public class RecordingEventsPoller implements FragmentHandler
                 recordingStartPosition = recordingProgressDecoder.startPosition();
                 recordingPosition = recordingProgressDecoder.position();
                 recordingStopPosition = Aeron.NULL_VALUE;
+                pollComplete = true;
                 break;
 
             case RecordingStoppedDecoder.TEMPLATE_ID:
@@ -171,12 +179,8 @@ public class RecordingEventsPoller implements FragmentHandler
                 recordingStartPosition = recordingStoppedDecoder.startPosition();
                 recordingStopPosition = recordingStoppedDecoder.stopPosition();
                 recordingPosition = recordingStopPosition;
+                pollComplete = true;
                 break;
-
-            default:
-                throw new ArchiveException("unknown templateId: " + templateId);
         }
-
-        pollComplete = true;
     }
 }

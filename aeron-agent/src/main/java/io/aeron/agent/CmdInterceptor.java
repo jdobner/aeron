@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,8 +18,8 @@ package io.aeron.agent;
 import net.bytebuddy.asm.Advice;
 import org.agrona.DirectBuffer;
 
-import static io.aeron.agent.EventCode.*;
-import static io.aeron.agent.EventLogger.LOGGER;
+import static io.aeron.agent.DriverEventCode.*;
+import static io.aeron.agent.DriverEventLogger.LOGGER;
 import static io.aeron.command.ControlProtocolEvents.*;
 
 /**
@@ -118,6 +118,14 @@ class CmdInterceptor
 
             case REMOVE_RCV_DESTINATION:
                 LOGGER.log(CMD_IN_REMOVE_RCV_DESTINATION, buffer, index, length);
+                break;
+
+            case ON_CLIENT_TIMEOUT:
+                LOGGER.log(CMD_OUT_ON_CLIENT_TIMEOUT, buffer, index, length);
+                break;
+
+            case TERMINATE_DRIVER:
+                LOGGER.log(CMD_IN_TERMINATE_DRIVER, buffer, index, length);
                 break;
         }
     }

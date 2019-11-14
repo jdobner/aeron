@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,6 +19,7 @@ import io.aeron.command.*;
 import io.aeron.exceptions.ConductorServiceTimeoutException;
 import io.aeron.exceptions.DriverTimeoutException;
 import io.aeron.exceptions.RegistrationException;
+import io.aeron.exceptions.TimeoutException;
 import io.aeron.logbuffer.LogBufferDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
 import org.agrona.ErrorHandler;
@@ -49,8 +50,8 @@ public class ClientConductorTest
 {
     private static final int TERM_BUFFER_LENGTH = TERM_MIN_LENGTH;
 
-    protected static final int SESSION_ID_1 = 13;
-    protected static final int SESSION_ID_2 = 15;
+    private static final int SESSION_ID_1 = 13;
+    private static final int SESSION_ID_2 = 15;
 
     private static final String CHANNEL = "aeron:udp?endpoint=localhost:40124";
     private static final int STREAM_ID_1 = 2;
@@ -76,14 +77,15 @@ public class ClientConductorTest
     private final SubscriptionReadyFlyweight subscriptionReady = new SubscriptionReadyFlyweight();
     private final OperationSucceededFlyweight operationSuccess = new OperationSucceededFlyweight();
     private final ErrorResponseFlyweight errorResponse = new ErrorResponseFlyweight();
+    private final ClientTimeoutFlyweight clientTimeout = new ClientTimeoutFlyweight();
 
     private final UnsafeBuffer publicationReadyBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
     private final UnsafeBuffer subscriptionReadyBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
     private final UnsafeBuffer operationSuccessBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
     private final UnsafeBuffer errorMessageBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
+    private final UnsafeBuffer clientTimeoutBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
 
     private final CopyBroadcastReceiver mockToClientReceiver = mock(CopyBroadcastReceiver.class);
-
     private final UnsafeBuffer counterValuesBuffer = new UnsafeBuffer(allocateDirect(COUNTER_BUFFER_LENGTH));
 
     private long timeMs = 0;
@@ -98,8 +100,10 @@ public class ClientConductorTest
     private final DriverProxy driverProxy = mock(DriverProxy.class);
     private final AvailableImageHandler mockAvailableImageHandler = mock(AvailableImageHandler.class);
     private final UnavailableImageHandler mockUnavailableImageHandler = mock(UnavailableImageHandler.class);
+    private final Runnable mockCloseHandler = mock(Runnable.class);
     private final LogBuffersFactory logBuffersFactory = mock(LogBuffersFactory.class);
     private final Lock mockClientLock = mock(Lock.class);
+    private final Aeron mockAeron = mock(Aeron.class);
     private boolean suppressPrintError = false;
 
     @Before
@@ -109,15 +113,17 @@ public class ClientConductorTest
             .clientLock(mockClientLock)
             .epochClock(epochClock)
             .nanoClock(nanoClock)
+            .awaitingIdleStrategy(new NoOpIdleStrategy())
             .toClientBuffer(mockToClientReceiver)
             .driverProxy(driverProxy)
             .logBuffersFactory(logBuffersFactory)
             .errorHandler(mockClientErrorHandler)
             .availableImageHandler(mockAvailableImageHandler)
             .unavailableImageHandler(mockUnavailableImageHandler)
-            .keepAliveInterval(KEEP_ALIVE_INTERVAL)
+            .closeHandler(mockCloseHandler)
+            .keepAliveIntervalNs(KEEP_ALIVE_INTERVAL)
             .driverTimeoutMs(AWAIT_TIMEOUT)
-            .interServiceTimeout(TimeUnit.MILLISECONDS.toNanos(INTER_SERVICE_TIMEOUT_MS));
+            .interServiceTimeoutNs(TimeUnit.MILLISECONDS.toNanos(INTER_SERVICE_TIMEOUT_MS));
 
         ctx.countersValuesBuffer(counterValuesBuffer);
 
@@ -129,12 +135,13 @@ public class ClientConductorTest
         when(driverProxy.addSubscription(anyString(), anyInt())).thenReturn(CORRELATION_ID);
         when(driverProxy.removeSubscription(CORRELATION_ID)).thenReturn(CLOSE_CORRELATION_ID);
 
-        conductor = new ClientConductor(ctx);
+        conductor = new ClientConductor(ctx, mockAeron);
 
         publicationReady.wrap(publicationReadyBuffer, 0);
         subscriptionReady.wrap(subscriptionReadyBuffer, 0);
         operationSuccess.wrap(operationSuccessBuffer, 0);
         errorResponse.wrap(errorMessageBuffer, 0);
+        clientTimeout.wrap(clientTimeoutBuffer, 0);
 
         publicationReady.correlationId(CORRELATION_ID);
         publicationReady.registrationId(CORRELATION_ID);
@@ -446,7 +453,6 @@ public class ClientConductorTest
 
         conductor.onAvailableImage(
             CORRELATION_ID,
-            STREAM_ID_1,
             SESSION_ID_1,
             subscription.registrationId(),
             SUBSCRIPTION_POSITION_ID,
@@ -472,7 +478,6 @@ public class ClientConductorTest
 
         conductor.onAvailableImage(
             CORRELATION_ID,
-            STREAM_ID_1,
             SESSION_ID_1,
             subscription.registrationId(),
             SUBSCRIPTION_POSITION_ID,
@@ -483,7 +488,7 @@ public class ClientConductorTest
         assertTrue(subscription.isConnected());
         verify(mockAvailableImageHandler).onAvailableImage(any(Image.class));
 
-        conductor.onUnavailableImage(CORRELATION_ID, subscription.registrationId(), STREAM_ID_1);
+        conductor.onUnavailableImage(CORRELATION_ID, subscription.registrationId());
 
         verify(mockUnavailableImageHandler).onUnavailableImage(any(Image.class));
         assertTrue(subscription.hasNoImages());
@@ -495,7 +500,6 @@ public class ClientConductorTest
     {
         conductor.onAvailableImage(
             CORRELATION_ID_2,
-            STREAM_ID_2,
             SESSION_ID_2,
             SUBSCRIPTION_POSITION_REGISTRATION_ID,
             SUBSCRIPTION_POSITION_ID,
@@ -509,7 +513,7 @@ public class ClientConductorTest
     @Test
     public void shouldIgnoreUnknownInactiveImage()
     {
-        conductor.onUnavailableImage(CORRELATION_ID_2, SUBSCRIPTION_POSITION_REGISTRATION_ID, STREAM_ID_2);
+        conductor.onUnavailableImage(CORRELATION_ID_2, SUBSCRIPTION_POSITION_REGISTRATION_ID);
 
         verify(logBuffersFactory, never()).map(anyString());
         verify(mockUnavailableImageHandler, never()).onUnavailableImage(any(Image.class));
@@ -528,7 +532,51 @@ public class ClientConductorTest
 
         verify(mockClientErrorHandler).onError(any(ConductorServiceTimeoutException.class));
 
-        assertTrue(conductor.isClosed());
+        assertTrue(conductor.isTerminating());
+    }
+
+    @Test
+    public void shouldTerminateAndErrorOnClientTimeoutFromDriver()
+    {
+        suppressPrintError = true;
+
+        conductor.onClientTimeout();
+        verify(mockClientErrorHandler).onError(any(TimeoutException.class));
+
+        boolean threwException = false;
+        try
+        {
+            conductor.doWork();
+        }
+        catch (final AgentTerminationException ex)
+        {
+            threwException = true;
+        }
+
+        assertTrue(threwException);
+        assertTrue(conductor.isTerminating());
+
+        conductor.onClose();
+        verify(mockCloseHandler).run();
+    }
+
+    @Test
+    public void shouldNotCloseAndErrorOnClientTimeoutForAnotherClientIdFromDriver()
+    {
+        whenReceiveBroadcastOnMessage(
+            ControlProtocolEvents.ON_CLIENT_TIMEOUT,
+            clientTimeoutBuffer,
+            (buffer) ->
+            {
+                clientTimeout.clientId(conductor.driverListenerAdapter().clientId() + 1);
+                return ClientTimeoutFlyweight.LENGTH;
+            });
+
+        conductor.doWork();
+
+        verify(mockClientErrorHandler, never()).onError(any(TimeoutException.class));
+
+        assertFalse(conductor.isClosed());
     }
 
     private void whenReceiveBroadcastOnMessage(

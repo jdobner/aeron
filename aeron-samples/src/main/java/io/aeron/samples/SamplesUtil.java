@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,16 +15,30 @@
  */
 package io.aeron.samples;
 
+import io.aeron.CommonContext;
 import io.aeron.Image;
 import io.aeron.Subscription;
 import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.protocol.HeaderFlyweight;
+import org.agrona.DirectBuffer;
 import org.agrona.LangUtil;
-import org.agrona.concurrent.BusySpinIdleStrategy;
+import org.agrona.collections.MutableInteger;
+import org.agrona.concurrent.BackoffIdleStrategy;
 import org.agrona.concurrent.IdleStrategy;
+import org.agrona.concurrent.status.CountersReader;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+
+import static io.aeron.CncFileDescriptor.*;
+import static io.aeron.archive.Archive.Configuration.DEFAULT_IDLE_STRATEGY;
+import static io.aeron.driver.Configuration.*;
+import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 
 /**
  * Utility functions for the samples.
@@ -32,29 +46,29 @@ import java.util.function.Consumer;
 public class SamplesUtil
 {
     /**
-     * Return a reusable, parametrised event loop that calls a default idler when no messages are received
+     * Return a reusable, parametrised event loop that calls a default idler when no messages are received.
      *
      * @param fragmentHandler to be called back for each message.
-     * @param limit           passed to {@link Subscription#poll(FragmentHandler, int)}
-     * @param running         indication for loop
-     * @return loop function
+     * @param limit           passed to {@link Subscription#poll(FragmentHandler, int)}.
+     * @param running         indication for loop.
+     * @return loop function.
      */
     public static Consumer<Subscription> subscriberLoop(
         final FragmentHandler fragmentHandler, final int limit, final AtomicBoolean running)
     {
-        final IdleStrategy idleStrategy = new BusySpinIdleStrategy();
+        final IdleStrategy idleStrategy = SampleConfiguration.newIdleStrategy();
 
         return subscriberLoop(fragmentHandler, limit, running, idleStrategy);
     }
 
     /**
-     * Return a reusable, parametrised event loop that calls and idler when no messages are received
+     * Return a reusable, parametrised event loop that calls and idler when no messages are received.
      *
      * @param fragmentHandler to be called back for each message.
-     * @param limit           passed to {@link Subscription#poll(FragmentHandler, int)}
-     * @param running         indication for loop
-     * @param idleStrategy    to use for loop
-     * @return loop function
+     * @param limit           passed to {@link Subscription#poll(FragmentHandler, int)}.
+     * @param running         indication for loop.
+     * @param idleStrategy    to use for loop.
+     * @return loop function.
      */
     public static Consumer<Subscription> subscriberLoop(
         final FragmentHandler fragmentHandler,
@@ -81,10 +95,10 @@ public class SamplesUtil
     }
 
     /**
-     * Return a reusable, parametrised {@link FragmentHandler} that prints to stdout
+     * Return a reusable, parametrised {@link FragmentHandler} that prints to stdout.
      *
-     * @param streamId to show when printing
-     * @return subscription data handler function that prints the message contents
+     * @param streamId to show when printing.
+     * @return subscription data handler function that prints the message contents.
      */
     public static FragmentHandler printStringMessage(final int streamId)
     {
@@ -103,8 +117,8 @@ public class SamplesUtil
      * Return a reusable, parametrised {@link FragmentHandler} that calls into a
      * {@link RateReporter}.
      *
-     * @param reporter for the rate
-     * @return {@link FragmentHandler} that records the rate information
+     * @param reporter for the rate.
+     * @return {@link FragmentHandler} that records the rate information.
      */
     public static FragmentHandler rateReporterHandler(final RateReporter reporter)
     {
@@ -114,11 +128,11 @@ public class SamplesUtil
     /**
      * Generic error handler that just prints message to stdout.
      *
-     * @param channel   for the error
-     * @param streamId  for the error
-     * @param sessionId for the error, if source
-     * @param message   indicating what the error was
-     * @param cause     of the error
+     * @param channel   for the error.
+     * @param streamId  for the error.
+     * @param sessionId for the error, if source.
+     * @param message   indicating what the error was.
+     * @param cause     of the error.
      */
     @SuppressWarnings("unused")
     public static void printError(
@@ -132,12 +146,12 @@ public class SamplesUtil
     }
 
     /**
-     * Print the rates to stdout
+     * Print the rates to stdout.
      *
-     * @param messagesPerSec being reported
-     * @param bytesPerSec    being reported
-     * @param totalMessages  being reported
-     * @param totalBytes     being reported
+     * @param messagesPerSec being reported.
+     * @param bytesPerSec    being reported.
+     * @param totalMessages  being reported.
+     * @param totalBytes     being reported.
      */
     public static void printRate(
         final double messagesPerSec,
@@ -146,14 +160,14 @@ public class SamplesUtil
         final long totalBytes)
     {
         System.out.println(String.format(
-            "%.02g msgs/sec, %.02g payload bytes/sec, totals %d messages %d MB",
+            "%.04g msgs/sec, %.04g payload bytes/sec, totals %d messages %d MB",
             messagesPerSec, bytesPerSec, totalMessages, totalBytes / (1024 * 1024)));
     }
 
     /**
      * Print the information for an available image to stdout.
      *
-     * @param image that has been created
+     * @param image that has been created.
      */
     public static void printAvailableImage(final Image image)
     {
@@ -166,7 +180,7 @@ public class SamplesUtil
     /**
      * Print the information for an unavailable image to stdout.
      *
-     * @param image that has gone inactive
+     * @param image that has gone inactive.
      */
     public static void printUnavailableImage(final Image image)
     {
@@ -174,5 +188,107 @@ public class SamplesUtil
         System.out.println(String.format(
             "Unavailable image on %s streamId=%d sessionId=%d",
             subscription.channel(), subscription.streamId(), image.sessionId()));
+    }
+
+    /**
+     * Map an existing file as a read only buffer.
+     *
+     * @param location of file to map.
+     * @return the mapped file.
+     */
+    public static MappedByteBuffer mapExistingFileReadOnly(final File location)
+    {
+        if (!location.exists())
+        {
+            final String msg = "file not found: " + location.getAbsolutePath();
+            throw new IllegalStateException(msg);
+        }
+
+        MappedByteBuffer mappedByteBuffer = null;
+        try (RandomAccessFile file = new RandomAccessFile(location, "r");
+            FileChannel channel = file.getChannel())
+        {
+            mappedByteBuffer = channel.map(READ_ONLY, 0, channel.size());
+        }
+        catch (final IOException ex)
+        {
+            LangUtil.rethrowUnchecked(ex);
+        }
+
+        return mappedByteBuffer;
+    }
+
+    /**
+     * Map an existing CnC file.
+     *
+     * @return the {@link CountersReader} over the CnC file.
+     */
+    public static CountersReader mapCounters()
+    {
+        final File cncFile = CommonContext.newDefaultCncFile();
+        System.out.println("Command `n Control file " + cncFile);
+
+        final MappedByteBuffer cncByteBuffer = mapExistingFileReadOnly(cncFile);
+        final DirectBuffer cncMetaData = createMetaDataBuffer(cncByteBuffer);
+        final int cncVersion = cncMetaData.getInt(cncVersionOffset(0));
+
+        checkVersion(cncVersion);
+
+        return new CountersReader(
+            createCountersMetaDataBuffer(cncByteBuffer, cncMetaData),
+            createCountersValuesBuffer(cncByteBuffer, cncMetaData));
+    }
+
+    /**
+     * Map an existing CnC file.
+     *
+     * @param cncFileVersion to set as value of file.
+     * @return the {@link CountersReader} over the CnC file.
+     */
+    public static CountersReader mapCounters(final MutableInteger cncFileVersion)
+    {
+        final File cncFile = CommonContext.newDefaultCncFile();
+        System.out.println("Command `n Control file " + cncFile);
+
+        final MappedByteBuffer cncByteBuffer = mapExistingFileReadOnly(cncFile);
+        final DirectBuffer cncMetaData = createMetaDataBuffer(cncByteBuffer);
+        final int cncVersion = cncMetaData.getInt(cncVersionOffset(0));
+
+        cncFileVersion.set(cncVersion);
+        checkVersion(cncVersion);
+
+        return new CountersReader(
+            createCountersMetaDataBuffer(cncByteBuffer, cncMetaData),
+            createCountersValuesBuffer(cncByteBuffer, cncMetaData));
+    }
+
+    /**
+     * Create an {@link IdleStrategy} that can be used to.
+     *
+     * @param strategyName of the class to be created.
+     * @return the newly created IdleStrategy.
+     */
+    public static IdleStrategy newIdleStrategy(final String strategyName)
+    {
+        IdleStrategy idleStrategy = null;
+
+        if (DEFAULT_IDLE_STRATEGY.equals(strategyName))
+        {
+            idleStrategy = new BackoffIdleStrategy(
+                IDLE_MAX_SPINS, IDLE_MAX_YIELDS, IDLE_MIN_PARK_NS, IDLE_MAX_PARK_NS);
+        }
+        else
+        {
+            try
+            {
+                idleStrategy = (IdleStrategy)Class.forName(strategyName).getConstructor().newInstance();
+            }
+            catch (final Exception ex)
+            {
+                LangUtil.rethrowUnchecked(ex);
+            }
+        }
+
+        return idleStrategy;
     }
 }

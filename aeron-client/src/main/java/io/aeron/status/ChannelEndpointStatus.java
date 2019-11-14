@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,7 +25,7 @@ import static org.agrona.BitUtil.SIZE_OF_INT;
 import static org.agrona.concurrent.status.CountersReader.MAX_LABEL_LENGTH;
 
 /**
- * Status for an Aeron media channel for a {@link io.aeron.Publication} or {@link io.aeron.Subscription}.
+ * Status of the Aeron media channel for a {@link io.aeron.Publication} or {@link io.aeron.Subscription}.
  */
 public class ChannelEndpointStatus
 {

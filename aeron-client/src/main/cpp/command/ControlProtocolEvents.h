@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,8 +22,7 @@
 namespace aeron { namespace command {
 
 /**
-* List of event types used in the control protocol between the
-* media driver and the core.
+* List of event types used in the control protocol between the media driver and the core.
 */
 struct ControlProtocolEvents
 {
@@ -55,6 +54,8 @@ struct ControlProtocolEvents
     static const std::int32_t ADD_RCV_DESTINATION = 0x0C;
     /** Remove Destination for existing Subscription */
     static const std::int32_t REMOVE_RCV_DESTINATION = 0x0D;
+    /** Request driver run termination hook */
+    static const std::int32_t TERMINATE_DRIVER = 0x0E;
 
     // Media Driver to Clients
 
@@ -76,6 +77,8 @@ struct ControlProtocolEvents
     static const std::int32_t ON_COUNTER_READY = 0x0F08;
     /** inform clients of removal of counter */
     static const std::int32_t ON_UNAVAILABLE_COUNTER = 0x0F09;
+    /** inform clients of client timeout */
+    static const std::int32_t ON_CLIENT_TIMEOUT = 0x0F0A;
 };
 
 }}

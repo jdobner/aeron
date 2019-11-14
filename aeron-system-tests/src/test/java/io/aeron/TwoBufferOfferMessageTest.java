@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -35,6 +35,7 @@ public class TwoBufferOfferMessageTest
 
     private final MediaDriver driver = MediaDriver.launch(new MediaDriver.Context()
         .errorHandler(Throwable::printStackTrace)
+        .dirDeleteOnShutdown(true)
         .threadingMode(ThreadingMode.SHARED));
 
     private final Aeron aeron = Aeron.connect();
@@ -44,7 +45,6 @@ public class TwoBufferOfferMessageTest
     {
         CloseHelper.close(aeron);
         CloseHelper.close(driver);
-        driver.context().deleteAeronDirectory();
     }
 
     @Test(timeout = 10_000)
@@ -122,8 +122,8 @@ public class TwoBufferOfferMessageTest
     {
         while (publication.offer(bufferOne, 0, bufferOne.capacity(), bufferTwo, 0, bufferTwo.capacity()) < 0L)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
     }
 
@@ -137,8 +137,8 @@ public class TwoBufferOfferMessageTest
             final int fragments = subscription.poll(handler, FRAGMENT_COUNT_LIMIT);
             if (fragments == 0)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
         }
     }

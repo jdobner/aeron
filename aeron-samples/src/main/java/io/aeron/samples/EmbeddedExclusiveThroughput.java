@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,7 +20,8 @@ import io.aeron.driver.MediaDriver;
 import io.aeron.logbuffer.FragmentHandler;
 import org.agrona.BitUtil;
 import org.agrona.BufferUtil;
-import org.agrona.concurrent.BusySpinIdleStrategy;
+import org.agrona.DirectBuffer;
+import org.agrona.concurrent.IdleStrategy;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.console.ContinueBarrier;
 
@@ -30,6 +31,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static io.aeron.samples.SamplesUtil.rateReporterHandler;
 import static org.agrona.SystemUtil.loadPropertiesFiles;
 
+/**
+ * Throughput test using {@link ExclusivePublication#offer(DirectBuffer, int, int)} over UDP transport.
+ */
 public class EmbeddedExclusiveThroughput
 {
     private static final long NUMBER_OF_MESSAGES = SampleConfiguration.NUMBER_OF_MESSAGES;
@@ -41,7 +45,6 @@ public class EmbeddedExclusiveThroughput
 
     private static final UnsafeBuffer OFFER_BUFFER = new UnsafeBuffer(
         BufferUtil.allocateDirectAligned(MESSAGE_LENGTH, BitUtil.CACHE_LINE_LENGTH));
-    private static final BusySpinIdleStrategy OFFER_IDLE_STRATEGY = new BusySpinIdleStrategy();
 
     private static volatile boolean printingActive = true;
 
@@ -57,19 +60,20 @@ public class EmbeddedExclusiveThroughput
 
         try (MediaDriver ignore = MediaDriver.launch();
             Aeron aeron = Aeron.connect();
-            ExclusivePublication publication = aeron.addExclusivePublication(CHANNEL, STREAM_ID);
-            Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID))
+            Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID);
+            ExclusivePublication publication = aeron.addExclusivePublication(CHANNEL, STREAM_ID))
         {
             executor.execute(reporter);
             executor.execute(() -> SamplesUtil.subscriberLoop(
                 rateReporterHandler, FRAGMENT_COUNT_LIMIT, running).accept(subscription));
 
             final ContinueBarrier barrier = new ContinueBarrier("Execute again?");
+            final IdleStrategy idleStrategy = SampleConfiguration.newIdleStrategy();
 
             do
             {
                 System.out.format(
-                    "%nStreaming %,d messages of payload length %d bytes to %s on stream Id %d%n",
+                    "%nStreaming %,d messages of payload length %d bytes to %s on stream id %d%n",
                     NUMBER_OF_MESSAGES, MESSAGE_LENGTH, CHANNEL, STREAM_ID);
 
                 printingActive = true;
@@ -79,11 +83,11 @@ public class EmbeddedExclusiveThroughput
                 {
                     OFFER_BUFFER.putLong(0, i);
 
-                    OFFER_IDLE_STRATEGY.reset();
-                    while (publication.offer(OFFER_BUFFER, 0, OFFER_BUFFER.capacity()) < 0)
+                    idleStrategy.reset();
+                    while (publication.offer(OFFER_BUFFER, 0, MESSAGE_LENGTH) < 0)
                     {
-                        OFFER_IDLE_STRATEGY.idle();
                         backPressureCount++;
+                        idleStrategy.idle();
                     }
                 }
 
@@ -112,7 +116,7 @@ public class EmbeddedExclusiveThroughput
         if (printingActive)
         {
             System.out.format(
-                "%.02g msgs/sec, %.02g bytes/sec, totals %d messages %d MB payloads%n",
+                "%.04g msgs/sec, %.04g bytes/sec, totals %d messages %d MB payloads%n",
                 messagesPerSec, bytesPerSec, totalFragments, totalBytes / (1024 * 1024));
         }
     }

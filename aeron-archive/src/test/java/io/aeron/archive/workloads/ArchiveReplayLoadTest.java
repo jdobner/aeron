@@ -4,7 +4,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *  https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,7 +34,7 @@ import io.aeron.logbuffer.FrameDescriptor;
 import io.aeron.logbuffer.Header;
 import org.agrona.CloseHelper;
 import org.agrona.DirectBuffer;
-import org.agrona.IoUtil;
+import org.agrona.SystemUtil;
 import org.agrona.concurrent.IdleStrategy;
 import org.agrona.concurrent.SleepingMillisIdleStrategy;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -116,7 +116,7 @@ public class ArchiveReplayLoadTest
         archive = Archive.launch(
             new Archive.Context()
                 .deleteArchiveOnStart(true)
-                .archiveDir(new File(IoUtil.tmpDirName(), "archive-test"))
+                .archiveDir(new File(SystemUtil.tmpDirName(), "archive-test"))
                 .fileSyncLevel(0)
                 .threadingMode(ArchiveThreadingMode.SHARED)
                 .errorCounter(driver.context().systemCounters().get(SystemCounterDescriptor.ERRORS))

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -33,7 +33,7 @@ import org.agrona.concurrent.UnsafeBuffer;
 
 import java.nio.ByteBuffer;
 
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 @RunWith(Theories.class)
@@ -51,6 +51,7 @@ public class BufferClaimMessageTest
 
     private final MediaDriver driver = MediaDriver.launch(new MediaDriver.Context()
         .errorHandler(Throwable::printStackTrace)
+        .dirDeleteOnShutdown(true)
         .publicationTermBufferLength(LogBufferDescriptor.TERM_MIN_LENGTH)
         .threadingMode(ThreadingMode.SHARED));
 
@@ -61,7 +62,6 @@ public class BufferClaimMessageTest
     {
         CloseHelper.close(aeron);
         CloseHelper.close(driver);
-        driver.context().deleteAeronDirectory();
     }
 
     @Theory
@@ -81,8 +81,8 @@ public class BufferClaimMessageTest
 
             while (publication.tryClaim(MESSAGE_LENGTH, bufferClaim) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             publishMessage(srcBuffer, publication);
@@ -96,8 +96,8 @@ public class BufferClaimMessageTest
                 final int fragments = subscription.poll(fragmentHandler, FRAGMENT_COUNT_LIMIT);
                 if (0 == fragments)
                 {
-                    SystemTest.checkInterruptedStatus();
                     Thread.yield();
+                    SystemTest.checkInterruptedStatus();
                 }
 
                 numFragments += fragments;
@@ -119,8 +119,8 @@ public class BufferClaimMessageTest
         {
             while (publication.tryClaim(MESSAGE_LENGTH, bufferClaim) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final long reservedValue = System.currentTimeMillis();
@@ -142,8 +142,8 @@ public class BufferClaimMessageTest
 
                 if (0 == fragments)
                 {
-                    SystemTest.checkInterruptedStatus();
                     Thread.yield();
+                    SystemTest.checkInterruptedStatus();
                 }
             }
         }
@@ -153,8 +153,8 @@ public class BufferClaimMessageTest
     {
         while (publication.offer(srcBuffer, 0, MESSAGE_LENGTH) < 0L)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
     }
 }

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,7 +16,7 @@
 package io.aeron.driver;
 
 import io.aeron.ReservedValueSupplier;
-import io.aeron.driver.status.SystemCounters;
+import org.agrona.concurrent.status.AtomicCounter;
 import org.junit.Before;
 import org.junit.experimental.theories.DataPoint;
 import org.junit.experimental.theories.Theories;
@@ -52,9 +52,12 @@ public class RetransmitHandlerTest
     private static final int STREAM_ID = 0x5400E;
     private static final int TERM_ID = 0x7F003355;
 
-    private static final FeedbackDelayGenerator DELAY_GENERATOR = () -> TimeUnit.MILLISECONDS.toNanos(20);
-    private static final FeedbackDelayGenerator ZERO_DELAY_GENERATOR = () -> TimeUnit.MILLISECONDS.toNanos(0);
-    private static final FeedbackDelayGenerator LINGER_GENERATOR = () -> TimeUnit.MILLISECONDS.toNanos(40);
+    private static final FeedbackDelayGenerator DELAY_GENERATOR =
+        new StaticDelayGenerator(TimeUnit.MILLISECONDS.toNanos(20), false);
+    private static final FeedbackDelayGenerator ZERO_DELAY_GENERATOR =
+        new StaticDelayGenerator(TimeUnit.MILLISECONDS.toNanos(0), false);
+    private static final FeedbackDelayGenerator LINGER_GENERATOR =
+        new StaticDelayGenerator(TimeUnit.MILLISECONDS.toNanos(40), false);
     private static final ReservedValueSupplier RESERVED_VALUE_SUPPLIER = null;
 
     private final UnsafeBuffer termBuffer = new UnsafeBuffer(allocateDirect(TERM_BUFFER_LENGTH));
@@ -68,13 +71,13 @@ public class RetransmitHandlerTest
     private long currentTime = 0;
 
     private final RetransmitSender retransmitSender = mock(RetransmitSender.class);
-    private final SystemCounters systemCounters = mock(SystemCounters.class);
+    private final AtomicCounter invalidPackets = mock(AtomicCounter.class);
 
     private final HeaderWriter headerWriter = HeaderWriter.newInstance(
         DataHeaderFlyweight.createDefaultHeader(0, 0, 0));
 
     private RetransmitHandler handler = new RetransmitHandler(
-        () -> currentTime, systemCounters, DELAY_GENERATOR, LINGER_GENERATOR);
+        () -> currentTime, invalidPackets, DELAY_GENERATOR, LINGER_GENERATOR);
 
     @Before
     public void before()
@@ -177,7 +180,7 @@ public class RetransmitHandlerTest
         currentTime = TimeUnit.MILLISECONDS.toNanos(100);
         handler.processTimeouts(currentTime, retransmitSender);
 
-        verifyZeroInteractions(retransmitSender);
+        verifyNoInteractions(retransmitSender);
     }
 
     @Theory
@@ -224,12 +227,12 @@ public class RetransmitHandlerTest
         createTermBuffer(creator, 5);
         handler.onNak(TERM_ID, offsetOfFrame(0), ALIGNED_FRAME_LENGTH, TERM_BUFFER_LENGTH, retransmitSender);
 
-        verifyZeroInteractions(retransmitSender);
+        verifyNoInteractions(retransmitSender);
     }
 
     private RetransmitHandler newZeroDelayRetransmitHandler()
     {
-        return new RetransmitHandler(() -> currentTime, systemCounters, ZERO_DELAY_GENERATOR, LINGER_GENERATOR);
+        return new RetransmitHandler(() -> currentTime, invalidPackets, ZERO_DELAY_GENERATOR, LINGER_GENERATOR);
     }
 
     private void createTermBuffer(final BiConsumer<RetransmitHandlerTest, Integer> creator, final int num)

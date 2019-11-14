@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,6 +31,9 @@
 #define AERON_COMMAND_ADD_COUNTER (0x09)
 #define AERON_COMMAND_REMOVE_COUNTER (0x0A)
 #define AERON_COMMAND_CLIENT_CLOSE (0x0B)
+#define AERON_COMMAND_ADD_RCV_DESTINATION (0x0C)
+#define AERON_COMMAND_REMOVE_RCV_DESTINATION (0x0D)
+#define AERON_COMMAND_TERMINATE_DRIVER (0x0E)
 
 #define AERON_RESPONSE_ON_ERROR (0x0F01)
 #define AERON_RESPONSE_ON_AVAILABLE_IMAGE (0x0F02)
@@ -41,17 +44,19 @@
 #define AERON_RESPONSE_ON_SUBSCRIPTION_READY (0x0F07)
 #define AERON_RESPONSE_ON_COUNTER_READY (0x0F08)
 #define AERON_RESPONSE_ON_UNAVAILABLE_COUNTER (0x0F09)
+#define AERON_RESPONSE_ON_CLIENT_TIMEOUT (0x0F0A)
 
 /* error codes */
+#define AERON_ERROR_CODE_UNKNOWN_CODE_VALUE (-1)
 #define AERON_ERROR_CODE_GENERIC_ERROR (0)
 #define AERON_ERROR_CODE_INVALID_CHANNEL (1)
 #define AERON_ERROR_CODE_UNKNOWN_SUBSCRIPTION (2)
 #define AERON_ERROR_CODE_UNKNOWN_PUBLICATION (3)
 #define AERON_ERROR_CODE_CHANNEL_ENDPOINT_ERROR (4)
 #define AERON_ERROR_CODE_UNKNOWN_COUNTER (5)
-#define AERON_ERROR_CODE_UNKNOWN_COMMAND_TYPE_ID (10)
-#define AERON_ERROR_CODE_MALFORMED_COMMAND (11)
-#define AERON_ERROR_CODE_ENOTSUP (12)
+#define AERON_ERROR_CODE_UNKNOWN_COMMAND_TYPE_ID (6)
+#define AERON_ERROR_CODE_MALFORMED_COMMAND (7)
+#define AERON_ERROR_CODE_NOT_SUPPORTED (8)
 
 #pragma pack(push)
 #pragma pack(4)
@@ -159,6 +164,19 @@ typedef struct aeron_counter_update_stct
     int32_t counter_id;
 }
 aeron_counter_update_t;
+
+typedef struct aeron_client_timeout_stct
+{
+    int64_t client_id;
+}
+aeron_client_timeout_t;
+
+typedef struct aeron_terminate_driver_command_stct
+{
+    aeron_correlated_command_t correlated;
+    int32_t token_length;
+}
+aeron_terminate_driver_command_t;
 
 #pragma pack(pop)
 

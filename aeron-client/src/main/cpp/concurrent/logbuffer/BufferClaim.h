@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,9 +34,7 @@ class BufferClaim
 public:
     typedef BufferClaim this_t;
 
-    inline BufferClaim()
-    {
-    }
+    BufferClaim() = default;
 
     /// @cond HIDDEN_SYMBOLS
     inline void wrap(std::uint8_t *buffer, util::index_t length)

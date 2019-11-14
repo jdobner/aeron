@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -33,12 +33,12 @@ public enum ErrorCode
     INVALID_CHANNEL(1),
 
     /**
-     * Attempted to remove a subscription, but it was not found
+     * Attempted to reference a subscription, but it was not found.
      */
     UNKNOWN_SUBSCRIPTION(2),
 
     /**
-     * Attempted to remove a publication, but it was not found.
+     * Attempted to reference a publication, but it was not found.
      */
     UNKNOWN_PUBLICATION(3),
 
@@ -48,9 +48,24 @@ public enum ErrorCode
     CHANNEL_ENDPOINT_ERROR(4),
 
     /**
-     * Attempted to remove a counter, but it was not found.
+     * Attempted to reference a counter, but it was not found.
      */
     UNKNOWN_COUNTER(5),
+
+    /**
+     * Attempted to send a command unknown by the driver.
+     */
+    UNKNOWN_COMMAND_TYPE_ID(6),
+
+    /**
+     * Attempted to send a command that is malformed. Typically, too short.
+     */
+    MALFORMED_COMMAND(7),
+
+    /**
+     * Attempted to send a command known by the driver, but not currently supported.
+     */
+    NOT_SUPPORTED(8),
 
     // *** Insert new codes above here.
 
@@ -65,6 +80,7 @@ public enum ErrorCode
     {
         final ErrorCode[] errorCodes = values();
         ERROR_CODES = new ErrorCode[errorCodes.length];
+
         for (final ErrorCode errorCode : errorCodes)
         {
             final int value = errorCode.value();

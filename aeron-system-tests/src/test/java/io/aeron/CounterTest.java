@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,10 +24,9 @@ import org.agrona.concurrent.status.CountersReader;
 import org.junit.After;
 import org.junit.Test;
 
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.*;
 
 public class CounterTest
@@ -54,6 +53,7 @@ public class CounterTest
 
         driver = MediaDriver.launch(
             new MediaDriver.Context()
+                .dirDeleteOnShutdown(true)
                 .errorHandler(Throwable::printStackTrace)
                 .threadingMode(ThreadingMode.SHARED));
 
@@ -75,7 +75,6 @@ public class CounterTest
         CloseHelper.quietClose(clientA);
 
         CloseHelper.close(driver);
-        driver.context().deleteAeronDirectory();
     }
 
     @Test(timeout = 2000)
@@ -146,19 +145,19 @@ public class CounterTest
 
         while (null == readableCounter)
         {
-            SystemTest.checkInterruptedStatus();
             SystemTest.sleep(1);
+            SystemTest.checkInterruptedStatus();
         }
 
-        assertTrue(!readableCounter.isClosed());
+        assertFalse(readableCounter.isClosed());
         assertThat(readableCounter.state(), is(CountersReader.RECORD_ALLOCATED));
 
         counter.close();
 
         while (!readableCounter.isClosed())
         {
-            SystemTest.checkInterruptedStatus();
             SystemTest.sleep(1);
+            SystemTest.checkInterruptedStatus();
         }
     }
 
@@ -169,9 +168,7 @@ public class CounterTest
     }
 
     private void unavailableCounterHandler(
-        @SuppressWarnings("unused") final CountersReader countersReader,
-        final long registrationId,
-        final int counterId)
+        @SuppressWarnings("unused") final CountersReader countersReader, final long registrationId, final int counterId)
     {
         assertThat(registrationId, is(readableCounter.registrationId()));
         assertThat(counterId, is(readableCounter.counterId()));

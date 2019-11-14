@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,7 +34,7 @@ public class PublisherPos
     /**
      * Human readable name for the counter.
      */
-    public static final String NAME = "pub-pos (sample)";
+    public static final String NAME = "pub-pos (sampled)";
 
     public static UnsafeBufferPosition allocate(
         final MutableDirectBuffer tempBuffer,
@@ -44,7 +44,7 @@ public class PublisherPos
         final int streamId,
         final String channel)
     {
-        return StreamPositionCounter.allocate(
+        return StreamCounter.allocate(
             tempBuffer, NAME, PUBLISHER_POS_TYPE_ID, countersManager, registrationId, sessionId, streamId, channel);
     }
 }

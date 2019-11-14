@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -39,16 +39,14 @@ public class RecordingEventsAdapter implements FragmentHandler
     private final Subscription subscription;
 
     /**
-     * Create a poller for a given subscription to an archive for recording events.
+     * Create an adapter for a given subscription to an archive for recording events.
      *
      * @param listener      to which events are dispatched.
      * @param subscription  to poll for new events.
      * @param fragmentLimit to apply for each polling operation.
      */
     public RecordingEventsAdapter(
-        final RecordingEventsListener listener,
-        final Subscription subscription,
-        final int fragmentLimit)
+        final RecordingEventsListener listener, final Subscription subscription, final int fragmentLimit)
     {
         this.fragmentLimit = fragmentLimit;
         this.listener = listener;
@@ -68,6 +66,12 @@ public class RecordingEventsAdapter implements FragmentHandler
     public void onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
         messageHeaderDecoder.wrap(buffer, offset);
+
+        final int schemaId = messageHeaderDecoder.schemaId();
+        if (schemaId != MessageHeaderDecoder.SCHEMA_ID)
+        {
+            throw new ArchiveException("expected schemaId=" + MessageHeaderDecoder.SCHEMA_ID + ", actual=" + schemaId);
+        }
 
         final int templateId = messageHeaderDecoder.templateId();
         switch (templateId)
@@ -113,9 +117,6 @@ public class RecordingEventsAdapter implements FragmentHandler
                     recordingStoppedDecoder.startPosition(),
                     recordingStoppedDecoder.stopPosition());
                 break;
-
-            default:
-                throw new ArchiveException("unknown templateId: " + templateId);
         }
     }
 }

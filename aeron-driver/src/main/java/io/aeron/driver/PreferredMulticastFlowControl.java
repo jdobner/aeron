@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,7 +28,7 @@ import static java.lang.System.getProperty;
 import static org.agrona.SystemUtil.getDurationInNanos;
 
 /**
- * Minimum multicast sender flow control strategy only for preferred members.
+ * Minimum multicast sender flow control strategy only for preferred members identified by an ASF key.
  * <p>
  * Flow control is set to minimum of tracked preferred receivers.
  * <p>
@@ -65,7 +65,6 @@ public class PreferredMulticastFlowControl implements FlowControl
 
     private final ArrayList<Receiver> receiverList = new ArrayList<>();
     private final byte[] smAsf = new byte[64];
-    private volatile boolean shouldLinger = true;
 
     /**
      * {@inheritDoc}
@@ -147,23 +146,7 @@ public class PreferredMulticastFlowControl implements FlowControl
             }
         }
 
-        if (isEos && shouldLinger)
-        {
-            if (0 == receiverList.size() || minPosition >= senderPosition)
-            {
-                shouldLinger = false;
-            }
-        }
-
         return receiverList.size() > 0 ? minLimitPosition : senderLimit;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public boolean shouldLinger(final long timeNs)
-    {
-        return shouldLinger;
     }
 
     public boolean isFromPreferred(final StatusMessageFlyweight statusMessageFlyweight)

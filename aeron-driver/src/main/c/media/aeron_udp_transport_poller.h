@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -49,10 +49,15 @@ typedef struct aeron_udp_transport_poller_stct
 #elif defined(HAVE_POLL)
     struct pollfd *pollfds;
 #endif
+
+    void *bindings_clientd;
 }
 aeron_udp_transport_poller_t;
 
-int aeron_udp_transport_poller_init(aeron_udp_transport_poller_t *poller);
+int aeron_udp_transport_poller_init(
+    aeron_udp_transport_poller_t *poller,
+    aeron_driver_context_t *context,
+    aeron_udp_channel_transport_affinity_t affinity);
 int aeron_udp_transport_poller_close(aeron_udp_transport_poller_t *poller);
 
 int aeron_udp_transport_poller_add(aeron_udp_transport_poller_t *poller, aeron_udp_channel_transport_t *transport);
@@ -62,7 +67,9 @@ int aeron_udp_transport_poller_poll(
     aeron_udp_transport_poller_t *poller,
     struct mmsghdr *msgvec,
     size_t vlen,
+    int64_t *bytes_rcved,
     aeron_udp_transport_recv_func_t recv_func,
+    aeron_udp_channel_transport_recvmmsg_func_t recvmmsg_func,
     void *clientd);
 
 #endif //AERON_UDP_TRANSPORT_POLLER_H

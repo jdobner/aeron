@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,6 +20,9 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/types.h>
+
+#include "util/aeron_platform.h"
 #include "concurrent/aeron_logbuffer_descriptor.h"
 
 typedef struct aeron_mapped_file_stct
@@ -36,9 +39,18 @@ typedef struct aeron_mapped_buffer_stct
 }
 aeron_mapped_buffer_t;
 
+int aeron_is_directory(const char* path);
+int aeron_delete_directory(const char* directory);
+
 int aeron_map_new_file(aeron_mapped_file_t *mapped_file, const char *path, bool fill_with_zeroes);
 int aeron_map_existing_file(aeron_mapped_file_t *mapped_file, const char *path);
 int aeron_unmap(aeron_mapped_file_t *mapped_file);
+
+#if defined(AERON_COMPILER_GCC)
+#define aeron_ftruncate ftruncate
+#elif defined(AERON_COMPILER_MSVC) && defined(AERON_CPU_X64)
+int aeron_ftruncate(int fd, off_t length);
+#endif
 
 typedef uint64_t (*aeron_usable_fs_space_func_t)(const char *path);
 

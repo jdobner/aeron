@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -59,7 +59,7 @@ int aeron_distinct_error_log_init(
     log->next_offset = 0;
     log->observation_list->num_observations = 0;
     log->observation_list->observations = NULL;
-    pthread_mutex_init(&log->mutex, NULL);
+    aeron_mutex_init(&log->mutex, NULL);
 
     return 0;
 }
@@ -69,12 +69,12 @@ void aeron_distinct_error_log_close(aeron_distinct_error_log_t *log)
     aeron_distinct_error_log_observation_list_t *list = aeron_distinct_error_log_observation_list_load(log);
     aeron_distinct_observation_t *observations = list->observations;
     size_t num_observations = list->num_observations;
-    
+
     for (size_t i = 0; i < num_observations; i++)
     {
         aeron_free((void *)observations[i].description);
     }
-    
+
     aeron_free(log->observation_list);
 }
 
@@ -152,7 +152,7 @@ static aeron_distinct_observation_t *aeron_distinct_error_log_new_observation(
 
         aeron_distinct_error_log_observation_list_store(log, new_list);
 
-        AERON_PUT_ORDERED(entry->length, length);
+        AERON_PUT_ORDERED(entry->length, (int32_t)length);
 
         observation = &new_array[0];
 
@@ -181,15 +181,16 @@ int aeron_distinct_error_log_record(
     aeron_distinct_error_log_observation_list_t *list = aeron_distinct_error_log_observation_list_load(log);
     size_t num_observations = list->num_observations;
     aeron_distinct_observation_t *observations = list->observations;
+
     if ((observation = aeron_distinct_error_log_find_observation(
         observations, num_observations, error_code, description)) == NULL)
     {
-        pthread_mutex_lock(&log->mutex);
+        aeron_mutex_lock(&log->mutex);
 
         observation = aeron_distinct_error_log_new_observation(
             log, num_observations, timestamp, error_code, description, message);
 
-        pthread_mutex_unlock(&log->mutex);
+        aeron_mutex_unlock(&log->mutex);
 
         if (NULL == observation)
         {
@@ -218,7 +219,8 @@ bool aeron_error_log_exists(const uint8_t *buffer, size_t buffer_size)
     int32_t length = 0;
 
     AERON_GET_VOLATILE(length, entry->length);
-    return (0 != length);
+
+    return 0 != length;
 }
 
 size_t aeron_error_log_read(
@@ -273,7 +275,9 @@ size_t aeron_distinct_error_log_num_observations(aeron_distinct_error_log_t *log
 
 extern int aeron_distinct_error_log_observation_list_alloc(
     aeron_distinct_error_log_observation_list_t **list, uint64_t num_observations);
+
 extern aeron_distinct_error_log_observation_list_t *aeron_distinct_error_log_observation_list_load(
     aeron_distinct_error_log_t *log);
+
 extern void aeron_distinct_error_log_observation_list_store(
     aeron_distinct_error_log_t *log, aeron_distinct_error_log_observation_list_t *list);

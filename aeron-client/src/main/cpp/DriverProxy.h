@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,6 +24,7 @@
 #include <command/SubscriptionMessageFlyweight.h>
 #include <command/DestinationMessageFlyweight.h>
 #include <command/CounterMessageFlyweight.h>
+#include <command/TerminateDriverFlyweight.h>
 #include <command/ControlProtocolEvents.h>
 
 namespace aeron {
@@ -35,7 +36,7 @@ using namespace aeron::concurrent::ringbuffer;
 class DriverProxy
 {
 public:
-    DriverProxy(ManyToOneRingBuffer&toDriverCommandBuffer) :
+    DriverProxy(ManyToOneRingBuffer& toDriverCommandBuffer) :
         m_toDriverCommandBuffer(toDriverCommandBuffer),
         m_clientId(toDriverCommandBuffer.nextCorrelationId())
     {
@@ -47,6 +48,11 @@ public:
     inline std::int64_t timeOfLastDriverKeepalive()
     {
         return m_toDriverCommandBuffer.consumerHeartbeatTime();
+    }
+
+    inline std::int64_t clientId() const
+    {
+        return m_clientId;
     }
 
     std::int64_t addPublication(const std::string& channel, std::int32_t streamId)
@@ -103,7 +109,7 @@ public:
             removeMessage.correlationId(correlationId);
             removeMessage.registrationId(registrationId);
 
-            length = removeMessage.length();
+            length = RemoveMessageFlyweight::length();
 
             return ControlProtocolEvents::REMOVE_PUBLICATION;
         });
@@ -145,7 +151,7 @@ public:
             removeMessage.correlationId(correlationId);
             removeMessage.registrationId(registrationId);
 
-            length = removeMessage.length();
+            length = RemoveMessageFlyweight::length();
 
             return ControlProtocolEvents::REMOVE_SUBSCRIPTION;
         });
@@ -285,7 +291,7 @@ public:
             command.correlationId(correlationId);
             command.registrationId(registrationId);
 
-            length = command.length();
+            length = RemoveMessageFlyweight::length();
 
             return ControlProtocolEvents::REMOVE_COUNTER;
         });
@@ -310,6 +316,22 @@ public:
         });
 
         return correlationId;
+    }
+
+    void terminateDriver(const std::uint8_t *tokenBuffer, std::size_t tokenLength)
+    {
+        writeCommandToDriver([&](AtomicBuffer& buffer, util::index_t& length)
+        {
+            TerminateDriverFlyweight request(buffer, 0);
+
+            request.clientId(m_clientId);
+            request.correlationId(-1);
+            request.tokenBuffer(tokenBuffer, tokenLength);
+
+            length = request.length();
+
+            return ControlProtocolEvents::TERMINATE_DRIVER;
+        });
     }
 
 private:

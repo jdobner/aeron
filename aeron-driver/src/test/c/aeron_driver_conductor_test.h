@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,8 +23,8 @@
 #include <exception>
 
 #include <gtest/gtest.h>
-#include <arpa/inet.h>
 #include <concurrent/CountersReader.h>
+#include <command/DestinationMessageFlyweight.h>
 
 extern "C"
 {
@@ -48,6 +48,7 @@ extern "C"
 #include "command/SubscriptionReadyFlyweight.h"
 #include "command/CounterMessageFlyweight.h"
 #include "command/CounterUpdateFlyweight.h"
+#include "command/ClientTimeoutFlyweight.h"
 
 using namespace aeron::concurrent::broadcast;
 using namespace aeron::concurrent::ringbuffer;
@@ -58,6 +59,7 @@ using namespace aeron;
 #define CHANNEL_2 "aeron:udp?endpoint=localhost:40002"
 #define CHANNEL_3 "aeron:udp?endpoint=localhost:40003"
 #define CHANNEL_4 "aeron:udp?endpoint=localhost:40004"
+#define CHANNEL_MDC_MANUAL "aeron:udp?control=localhost:40005|control-mode=manual"
 #define INVALID_URI "aeron:udp://"
 
 #define STREAM_ID_1 (101)
@@ -377,7 +379,9 @@ public:
     bool findCounter(int32_t counter_id, F&& func)
     {
         aeron_driver_context_t *ctx = m_context.m_context;
-        AtomicBuffer metadata(ctx->counters_metadata_buffer, static_cast<util::index_t>(ctx->counters_metadata_buffer_length));
+        AtomicBuffer metadata(
+            ctx->counters_metadata_buffer,
+            static_cast<util::index_t>(AERON_COUNTERS_METADATA_BUFFER_LENGTH(ctx->counters_values_buffer_length)));
         AtomicBuffer values(ctx->counters_values_buffer, static_cast<util::index_t>(ctx->counters_values_buffer_length));
 
         CountersReader reader(metadata, values);
@@ -394,6 +398,19 @@ public:
             });
 
         return found;
+    }
+
+    int addDestination(
+        int64_t client_id, int64_t correlation_id, int64_t publication_registration_id, const char *channel)
+    {
+        command::DestinationMessageFlyweight command(m_command, 0);
+
+        command.clientId(client_id);
+        command.correlationId(correlation_id);
+        command.registrationId(publication_registration_id);
+        command.channel(channel);
+
+        return writeCommand(AERON_COMMAND_ADD_DESTINATION, command.length());
     }
 
     int doWork()

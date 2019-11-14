@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -43,7 +43,7 @@ import static io.aeron.protocol.DataHeaderFlyweight.HEADER_LENGTH;
 public abstract class Publication implements AutoCloseable
 {
     /**
-     * The publication is not yet connected to a subscriber.
+     * The publication is not connected to a subscriber, this can be an intermittent state as subscribers come and go.
      */
     public static final long NOT_CONNECTED = -1;
 
@@ -478,6 +478,7 @@ public abstract class Publication implements AutoCloseable
     /**
      * Try to claim a range in the publication log into which a message can be written with zero copy semantics.
      * Once the message has been written then {@link BufferClaim#commit()} should be called thus making it available.
+     * A claim length cannot be greater than {@link #maxPayloadLength()}.
      * <p>
      * <b>Note:</b> This method can only be used for message lengths less than MTU length minus header.
      * If the claim is held for more than the aeron.publication.unblock.timeout system property then the driver will
@@ -515,7 +516,7 @@ public abstract class Publication implements AutoCloseable
     /**
      * Add a destination manually to a multi-destination-cast Publication.
      *
-     * @param endpointChannel for the destination to add
+     * @param endpointChannel for the destination to add.
      */
     public void addDestination(final String endpointChannel)
     {
@@ -530,7 +531,7 @@ public abstract class Publication implements AutoCloseable
     /**
      * Remove a previously added destination manually from a multi-destination-cast Publication.
      *
-     * @param endpointChannel for the destination to remove
+     * @param endpointChannel for the destination to remove.
      */
     public void removeDestination(final String endpointChannel)
     {
@@ -540,6 +541,44 @@ public abstract class Publication implements AutoCloseable
         }
 
         conductor.removeDestination(originalRegistrationId, endpointChannel);
+    }
+
+    /**
+     * Asynchronously add a destination manually to a multi-destination-cast Publication.
+     * <p>
+     * Errors will be delivered asynchronously to the {@link Aeron.Context#errorHandler()}. Completion can be
+     * tracked by passing the returned correlation id to {@link Aeron#isCommandActive(long)}.
+     *
+     * @param endpointChannel for the destination to add.
+     * @return the correlationId for the command.
+     */
+    public long asyncAddDestination(final String endpointChannel)
+    {
+        if (isClosed)
+        {
+            throw new AeronException("Publication is closed");
+        }
+
+        return conductor.asyncAddDestination(registrationId, endpointChannel);
+    }
+
+    /**
+     * Asynchronously remove a previously added destination from a multi-destination-cast Publication.
+     * <p>
+     * Errors will be delivered asynchronously to the {@link Aeron.Context#errorHandler()}. Completion can be
+     * tracked by passing the returned correlation id to {@link Aeron#isCommandActive(long)}.
+     *
+     * @param endpointChannel for the destination to remove.
+     * @return the correlationId for the command.
+     */
+    public long asyncRemoveDestination(final String endpointChannel)
+    {
+        if (isClosed)
+        {
+            throw new AeronException("Publication is closed");
+        }
+
+        return conductor.asyncRemoveDestination(registrationId, endpointChannel);
     }
 
     void internalClose()
@@ -617,5 +656,20 @@ public abstract class Publication implements AutoCloseable
         }
 
         return totalLength;
+    }
+
+    public String toString()
+    {
+        return "Publication{" +
+            "originalRegistrationId=" + originalRegistrationId +
+            ", registrationId=" + registrationId +
+            ", isClosed=" + isClosed +
+            ", initialTermId=" + initialTermId +
+            ", termBufferLength=" + termBufferLength +
+            ", sessionId=" + sessionId +
+            ", streamId=" + streamId +
+            ", channel='" + channel + '\'' +
+            ", position=" + position() +
+            '}';
     }
 }

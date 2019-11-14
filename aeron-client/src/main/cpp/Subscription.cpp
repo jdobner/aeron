@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,36 +28,45 @@ Subscription::Subscription(
     m_conductor(conductor),
     m_channel(channel),
     m_channelStatusId(channelStatusId),
+    m_imageArray(),
+    m_isClosed(false),
     m_registrationId(registrationId),
-    m_streamId(streamId),
-    m_imageList(new struct ImageList(new Image[0], 0)),
-    m_isClosed(false)
+    m_streamId(streamId)
 {
+    static_cast<void>(m_paddingBefore);
+    static_cast<void>(m_paddingAfter);
 }
 
 Subscription::~Subscription()
 {
-    m_conductor.releaseSubscription(m_registrationId, std::atomic_load_explicit(&m_imageList, std::memory_order_acquire));
+    auto imageArrayPair = m_imageArray.load();
+
+    m_conductor.releaseSubscription(m_registrationId, imageArrayPair.first, imageArrayPair.second);
 }
 
-void Subscription::addDestination(const std::string& endpointChannel)
+std::int64_t Subscription::addDestination(const std::string& endpointChannel)
 {
     if (isClosed())
     {
         throw util::IllegalStateException(std::string("Subscription is closed"), SOURCEINFO);
     }
 
-    m_conductor.addRcvDestination(m_registrationId, endpointChannel);
+    return m_conductor.addRcvDestination(m_registrationId, endpointChannel);
 }
 
-void Subscription::removeDestination(const std::string& endpointChannel)
+std::int64_t Subscription::removeDestination(const std::string& endpointChannel)
 {
     if (isClosed())
     {
         throw util::IllegalStateException(std::string("Subscription is closed"), SOURCEINFO);
     }
 
-    m_conductor.removeRcvDestination(m_registrationId, endpointChannel);
+    return m_conductor.removeRcvDestination(m_registrationId, endpointChannel);
+}
+
+bool Subscription::findDestinationResponse(std::int64_t correlationId)
+{
+    return m_conductor.findDestinationResponse(correlationId);
 }
 
 std::int64_t Subscription::channelStatus() const

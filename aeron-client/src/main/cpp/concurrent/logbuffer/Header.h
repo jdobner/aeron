@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,19 +34,6 @@ public:
         m_context(context), m_offset(0), m_initialTermId(initialTermId)
     {
         m_positionBitsToShift = util::BitUtil::numberOfTrailingZeroes(capacity);
-    }
-
-    Header(const Header& header) = default;
-
-    Header& operator=(const Header& header)
-    {
-        m_context = header.m_context;
-        m_buffer.wrap(header.m_buffer);
-        m_offset = header.m_offset;
-        m_initialTermId = header.m_initialTermId;
-        m_positionBitsToShift = header.m_positionBitsToShift;
-
-        return *this;
     }
 
     /**
@@ -91,7 +78,10 @@ public:
 
     inline void buffer(AtomicBuffer& buffer)
     {
-        m_buffer.wrap(buffer);
+        if (&buffer != &m_buffer)
+        {
+            m_buffer.wrap(buffer);
+        }
     }
 
     /**
@@ -101,7 +91,6 @@ public:
      */
     inline std::int32_t frameLength() const
     {
-        // TODO: add LITTLE_ENDIAN check
         return m_buffer.getInt32(m_offset);
     }
 
@@ -112,7 +101,6 @@ public:
      */
     inline std::int32_t sessionId() const
     {
-        // TODO: add LITTLE_ENDIAN check
         return m_buffer.getInt32(m_offset + DataFrameHeader::SESSION_ID_FIELD_OFFSET);
     }
 
@@ -123,7 +111,6 @@ public:
      */
     inline std::int32_t streamId() const
     {
-        // TODO: add LITTLE_ENDIAN check
         return m_buffer.getInt32(m_offset + DataFrameHeader::STREAM_ID_FIELD_OFFSET);
     }
 
@@ -134,7 +121,6 @@ public:
      */
     inline std::int32_t termId() const
     {
-        // TODO: add LITTLE_ENDIAN check
         return m_buffer.getInt32(m_offset + DataFrameHeader::TERM_ID_FIELD_OFFSET);
     }
 
@@ -155,7 +141,6 @@ public:
      */
     inline std::uint16_t type() const
     {
-        // TODO: add LITTLE_ENDIAN check
         return m_buffer.getUInt16(m_offset + DataFrameHeader::TYPE_FIELD_OFFSET);
     }
 

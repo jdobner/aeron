@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,7 +21,7 @@ namespace aeron {
 using namespace aeron::util;
 using namespace aeron::concurrent::logbuffer;
 
-LogBuffers::LogBuffers(const char *filename)
+LogBuffers::LogBuffers(const char *filename, bool preTouch)
 {
     const std::int64_t logLength = MemoryMappedFile::getFileSize(filename);
 
@@ -43,7 +43,22 @@ LogBuffers::LogBuffers(const char *filename)
 
     for (int i = 0; i < LogBufferDescriptor::PARTITION_COUNT; i++)
     {
-        m_buffers[i].wrap(basePtr + (i * termLength), termLength);
+        m_buffers[i].wrap(basePtr + (i * termLength), static_cast<size_t>(termLength));
+    }
+
+    if (preTouch)
+    {
+        volatile std::int32_t value = 0;
+
+        for (int i = 0; i < LogBufferDescriptor::PARTITION_COUNT; i++)
+        {
+            AtomicBuffer &termBuffer = m_buffers[i];
+
+            for (std::int32_t offset = 0; offset < termLength; offset += pageSize)
+            {
+                termBuffer.compareAndSetInt32(offset, value, value);
+            }
+        }
     }
 }
 
@@ -55,7 +70,7 @@ LogBuffers::LogBuffers(std::uint8_t *address, std::int64_t logLength, std::int32
 
     for (int i = 0; i < LogBufferDescriptor::PARTITION_COUNT; i++)
     {
-        m_buffers[i].wrap(address + (i * termLength), termLength);
+        m_buffers[i].wrap(address + (i * termLength), static_cast<size_t>(termLength));
     }
 }
 

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,11 +16,10 @@
 package io.aeron.cluster;
 
 import io.aeron.Aeron;
-import io.aeron.ChannelUri;
-import io.aeron.CommonContext;
 import io.aeron.Publication;
 import io.aeron.cluster.client.ClusterException;
 import io.aeron.cluster.codecs.CloseReason;
+import io.aeron.cluster.codecs.EventCode;
 import io.aeron.driver.exceptions.InvalidChannelException;
 import io.aeron.logbuffer.BufferClaim;
 import org.agrona.CloseHelper;
@@ -44,11 +43,14 @@ class ClusterSession
     private final long id;
     private long correlationId;
     private long openedLogPosition = Aeron.NULL_VALUE;
-    private long timeOfLastActivityMs;
+    private long timeOfLastActivityNs;
+    private boolean isBackupQuery = false;
     private final int responseStreamId;
     private final String responseChannel;
     private Publication responsePublication;
     private State state = State.INIT;
+    private String responseDetail = null;
+    private EventCode eventCode = null;
     private CloseReason closeReason = CloseReason.NULL_VAL;
     private byte[] encodedPrincipal = NULL_PRINCIPAL;
 
@@ -63,7 +65,7 @@ class ClusterSession
         final long sessionId,
         final long correlationId,
         final long openedLogPosition,
-        final long timeOfLastActivityMs,
+        final long timeOfLastActivityNs,
         final int responseStreamId,
         final String responseChannel,
         final CloseReason closeReason)
@@ -72,7 +74,7 @@ class ClusterSession
         this.responseStreamId = responseStreamId;
         this.responseChannel = responseChannel;
         this.openedLogPosition = openedLogPosition;
-        this.timeOfLastActivityMs = timeOfLastActivityMs;
+        this.timeOfLastActivityNs = timeOfLastActivityNs;
         this.correlationId = correlationId;
         this.closeReason = closeReason;
 
@@ -126,17 +128,19 @@ class ClusterSession
             throw new ClusterException("response publication already added");
         }
 
-        final ChannelUri channelUri = ChannelUri.parse(responseChannel);
-        channelUri.put(CommonContext.TERM_LENGTH_PARAM_NAME, "64k");
-        channelUri.put(CommonContext.SPARSE_PARAM_NAME, "true");
-
         try
         {
-            responsePublication = aeron.addExclusivePublication(channelUri.toString(), responseStreamId);
+            responsePublication = aeron.addPublication(responseChannel, responseStreamId);
         }
         catch (final InvalidChannelException ignore)
         {
         }
+    }
+
+    void disconnect()
+    {
+        CloseHelper.close(responsePublication);
+        responsePublication = null;
     }
 
     boolean isResponsePublicationConnected()
@@ -200,20 +204,37 @@ class ClusterSession
         return encodedPrincipal;
     }
 
-    void lastActivity(final long timeMs, final long correlationId)
+    void lastActivity(final long timeNs, final long correlationId)
     {
-        timeOfLastActivityMs = timeMs;
+        timeOfLastActivityNs = timeNs;
         this.correlationId = correlationId;
     }
 
-    long timeOfLastActivityMs()
+    void reject(final EventCode code, final String responseDetail)
     {
-        return timeOfLastActivityMs;
+        this.state = State.REJECTED;
+        this.eventCode = code;
+        this.responseDetail = responseDetail;
     }
 
-    void timeOfLastActivityMs(final long timeMs)
+    EventCode eventCode()
     {
-        timeOfLastActivityMs = timeMs;
+        return eventCode;
+    }
+
+    String responseDetail()
+    {
+        return responseDetail;
+    }
+
+    long timeOfLastActivityNs()
+    {
+        return timeOfLastActivityNs;
+    }
+
+    void timeOfLastActivityNs(final long timeNs)
+    {
+        timeOfLastActivityNs = timeNs;
     }
 
     long correlationId()
@@ -236,12 +257,27 @@ class ClusterSession
         return hasNewLeaderEventPending;
     }
 
+    boolean isBackupQuery()
+    {
+        return isBackupQuery;
+    }
+
+    void isBackupQuery(final boolean isBackupQuery)
+    {
+        this.isBackupQuery = isBackupQuery;
+    }
+
+    Publication responsePublication()
+    {
+        return responsePublication;
+    }
+
     static void checkEncodedPrincipalLength(final byte[] encodedPrincipal)
     {
         if (null != encodedPrincipal && encodedPrincipal.length > MAX_ENCODED_PRINCIPAL_LENGTH)
         {
             throw new ClusterException(
-                "Encoded Principal max length " +
+                "encoded principal max length " +
                 MAX_ENCODED_PRINCIPAL_LENGTH +
                 " exceeded: length=" +
                 encodedPrincipal.length);
@@ -254,7 +290,7 @@ class ClusterSession
             "id=" + id +
             ", correlationId=" + correlationId +
             ", openedLogPosition=" + openedLogPosition +
-            ", timeOfLastActivityMs=" + timeOfLastActivityMs +
+            ", timeOfLastActivityNs=" + timeOfLastActivityNs +
             ", responseStreamId=" + responseStreamId +
             ", responseChannel='" + responseChannel + '\'' +
             ", closeReason=" + closeReason +

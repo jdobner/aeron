@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -142,7 +142,7 @@ public class DataPacketDispatcherTest
         dispatcher.addPublicationImage(mockImage);
         dispatcher.onSetupMessage(mockChannelEndpoint, mockSetupHeader, SRC_ADDRESS, 0);
 
-        verifyZeroInteractions(mockConductorProxy);
+        verifyNoInteractions(mockConductorProxy);
     }
 
     @Test
@@ -174,8 +174,8 @@ public class DataPacketDispatcherTest
         dispatcher.onDataPacket(mockChannelEndpoint, mockHeader, mockBuffer, LENGTH, SRC_ADDRESS, 0);
         dispatcher.onSetupMessage(mockChannelEndpoint, mockSetupHeader, SRC_ADDRESS, 0);
 
-        verifyZeroInteractions(mockConductorProxy);
-        verifyZeroInteractions(mockReceiver);
+        verifyNoInteractions(mockConductorProxy);
+        verifyNoInteractions(mockReceiver);
     }
 
     @Test

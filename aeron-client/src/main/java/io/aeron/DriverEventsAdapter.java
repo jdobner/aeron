@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +17,7 @@ package io.aeron;
 
 import io.aeron.command.*;
 import org.agrona.MutableDirectBuffer;
+import org.agrona.collections.LongHashSet;
 import org.agrona.concurrent.MessageHandler;
 import org.agrona.concurrent.broadcast.CopyBroadcastReceiver;
 
@@ -24,12 +25,10 @@ import static io.aeron.ErrorCode.CHANNEL_ENDPOINT_ERROR;
 import static io.aeron.command.ControlProtocolEvents.*;
 
 /**
- * Analogue of {@link DriverProxy} on the client side
+ * Analogue of {@link DriverProxy} on the client side for dispatching driver events to the client conductor.
  */
 class DriverEventsAdapter implements MessageHandler
 {
-    private final CopyBroadcastReceiver broadcastReceiver;
-
     private final ErrorResponseFlyweight errorResponse = new ErrorResponseFlyweight();
     private final PublicationBuffersReadyFlyweight publicationReady = new PublicationBuffersReadyFlyweight();
     private final SubscriptionReadyFlyweight subscriptionReady = new SubscriptionReadyFlyweight();
@@ -37,28 +36,57 @@ class DriverEventsAdapter implements MessageHandler
     private final OperationSucceededFlyweight operationSucceeded = new OperationSucceededFlyweight();
     private final ImageMessageFlyweight imageMessage = new ImageMessageFlyweight();
     private final CounterUpdateFlyweight counterUpdate = new CounterUpdateFlyweight();
+    private final ClientTimeoutFlyweight clientTimeout = new ClientTimeoutFlyweight();
+    private final LongHashSet asyncCommandIdSet;
+    private final CopyBroadcastReceiver receiver;
     private final DriverEventsListener listener;
+    private final long clientId;
 
     private long activeCorrelationId;
     private long receivedCorrelationId;
+    private boolean isInvalid;
 
-    DriverEventsAdapter(final CopyBroadcastReceiver broadcastReceiver, final DriverEventsListener listener)
+    DriverEventsAdapter(
+        final CopyBroadcastReceiver receiver,
+        final long clientId,
+        final DriverEventsListener listener,
+        final LongHashSet asyncCommandIdSet)
     {
-        this.broadcastReceiver = broadcastReceiver;
+        this.receiver = receiver;
+        this.clientId = clientId;
         this.listener = listener;
+        this.asyncCommandIdSet = asyncCommandIdSet;
     }
 
-    public int receive(final long activeCorrelationId)
+    int receive(final long activeCorrelationId)
     {
         this.activeCorrelationId = activeCorrelationId;
         this.receivedCorrelationId = Aeron.NULL_VALUE;
 
-        return broadcastReceiver.receive(this);
+        try
+        {
+            return receiver.receive(this);
+        }
+        catch (final IllegalStateException ex)
+        {
+            isInvalid = true;
+            throw ex;
+        }
     }
 
-    public long receivedCorrelationId()
+    long receivedCorrelationId()
     {
         return receivedCorrelationId;
+    }
+
+    boolean isInvalid()
+    {
+        return isInvalid;
+    }
+
+    long clientId()
+    {
+        return clientId;
     }
 
     @SuppressWarnings("MethodLength")
@@ -73,16 +101,23 @@ class DriverEventsAdapter implements MessageHandler
                 final int correlationId = (int)errorResponse.offendingCommandCorrelationId();
                 final int errorCodeValue = errorResponse.errorCodeValue();
                 final ErrorCode errorCode = ErrorCode.get(errorCodeValue);
-                final String message = errorResponse.errorMessage();
+                boolean notProcessed = true;
 
                 if (CHANNEL_ENDPOINT_ERROR == errorCode)
                 {
-                    listener.onChannelEndpointError(correlationId, message);
+                    notProcessed = false;
+                    listener.onChannelEndpointError(correlationId, errorResponse.errorMessage());
                 }
                 else if (correlationId == activeCorrelationId)
                 {
+                    notProcessed = false;
                     receivedCorrelationId = correlationId;
-                    listener.onError(correlationId, errorCodeValue, errorCode, message);
+                    listener.onError(correlationId, errorCodeValue, errorCode, errorResponse.errorMessage());
+                }
+
+                if (asyncCommandIdSet.remove(correlationId) && notProcessed)
+                {
+                    listener.onAsyncError(correlationId, errorCodeValue, errorCode, errorResponse.errorMessage());
                 }
                 break;
             }
@@ -93,7 +128,6 @@ class DriverEventsAdapter implements MessageHandler
 
                 listener.onAvailableImage(
                     imageReady.correlationId(),
-                    imageReady.streamId(),
                     imageReady.sessionId(),
                     imageReady.subscriptionRegistrationId(),
                     imageReady.subscriberPositionId(),
@@ -140,6 +174,7 @@ class DriverEventsAdapter implements MessageHandler
                 operationSucceeded.wrap(buffer, index);
 
                 final long correlationId = operationSucceeded.correlationId();
+                asyncCommandIdSet.remove(correlationId);
                 if (correlationId == activeCorrelationId)
                 {
                     receivedCorrelationId = correlationId;
@@ -152,7 +187,8 @@ class DriverEventsAdapter implements MessageHandler
                 imageMessage.wrap(buffer, index);
 
                 listener.onUnavailableImage(
-                    imageMessage.correlationId(), imageMessage.subscriptionRegistrationId(), imageMessage.streamId());
+                    imageMessage.correlationId(),
+                    imageMessage.subscriptionRegistrationId());
                 break;
             }
 
@@ -199,6 +235,17 @@ class DriverEventsAdapter implements MessageHandler
                 counterUpdate.wrap(buffer, index);
 
                 listener.onUnavailableCounter(counterUpdate.correlationId(), counterUpdate.counterId());
+                break;
+            }
+
+            case ON_CLIENT_TIMEOUT:
+            {
+                clientTimeout.wrap(buffer, index);
+
+                if (clientTimeout.clientId() == clientId)
+                {
+                    listener.onClientTimeout();
+                }
                 break;
             }
         }

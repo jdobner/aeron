@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,6 +21,7 @@ import io.aeron.protocol.NakFlyweight;
 import io.aeron.protocol.RttMeasurementFlyweight;
 import io.aeron.protocol.StatusMessageFlyweight;
 import org.agrona.BitUtil;
+import org.agrona.BufferUtil;
 
 import java.nio.ByteBuffer;
 import java.util.UUID;
@@ -54,7 +55,7 @@ public class ReceiveChannelEndpointThreadLocals
         final UUID uuid = UUID.randomUUID();
         receiverId = uuid.getMostSignificantBits() ^ uuid.getLeastSignificantBits();
 
-        final ByteBuffer byteBuffer = NetworkUtil.allocateDirectAlignedAndPadded(bufferLength, CACHE_LINE_LENGTH * 2);
+        final ByteBuffer byteBuffer = BufferUtil.allocateDirectAligned(bufferLength, CACHE_LINE_LENGTH);
 
         byteBuffer.limit(smLength);
         smBuffer = byteBuffer.slice();

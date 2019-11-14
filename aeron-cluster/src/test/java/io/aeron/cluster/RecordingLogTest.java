@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +15,9 @@
  */
 package io.aeron.cluster;
 
+import io.aeron.archive.client.AeronArchive;
 import org.agrona.IoUtil;
+import org.agrona.SystemUtil;
 import org.junit.After;
 import org.junit.Test;
 
@@ -27,13 +29,16 @@ import static io.aeron.archive.client.AeronArchive.NULL_POSITION;
 import static io.aeron.cluster.ConsensusModule.Configuration.SERVICE_ID;
 import static io.aeron.cluster.RecordingLog.ENTRY_TYPE_SNAPSHOT;
 import static io.aeron.cluster.RecordingLog.ENTRY_TYPE_TERM;
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
+import static org.mockito.Mockito.mock;
 
 public class RecordingLogTest
 {
-    private static final File TEMP_DIR = new File(IoUtil.tmpDirName());
+    private static final File TEMP_DIR = new File(SystemUtil.tmpDirName());
     private boolean ignoreMissingRecordingFile = false;
 
     @After
@@ -77,6 +82,32 @@ public class RecordingLogTest
     }
 
     @Test
+    public void shouldIgnoreIncompleteSnapshotInRecoveryPlan()
+    {
+        final int serviceCount = 1;
+
+        try (RecordingLog recordingLog = new RecordingLog(TEMP_DIR))
+        {
+            recordingLog.appendSnapshot(1L, 1L, 0, 777L, 0, 0);
+            recordingLog.appendSnapshot(2L, 1L, 0, 777L, 0, SERVICE_ID);
+            recordingLog.appendSnapshot(3L, 1L, 0, 777L, 0, 0);
+        }
+
+        try (RecordingLog recordingLog = new RecordingLog(TEMP_DIR))
+        {
+            assertThat(recordingLog.entries().size(), is(3));
+
+            final AeronArchive mockArchive = mock(AeronArchive.class);
+            final RecordingLog.RecoveryPlan recoveryPlan = recordingLog.createRecoveryPlan(mockArchive, serviceCount);
+            assertThat(recoveryPlan.snapshots.size(), is(2));
+            assertThat(recoveryPlan.snapshots.get(0).serviceId, is(SERVICE_ID));
+            assertThat(recoveryPlan.snapshots.get(0).recordingId, is(2L));
+            assertThat(recoveryPlan.snapshots.get(1).serviceId, is(0));
+            assertThat(recoveryPlan.snapshots.get(1).recordingId, is(1L));
+        }
+    }
+
+    @Test
     public void shouldAppendAndThenCommitTermPosition()
     {
         final long newPosition = 9999L;
@@ -88,7 +119,6 @@ public class RecordingLogTest
             final long timestamp = 3333L;
 
             recordingLog.appendTerm(recordingId, leadershipTermId, logPosition, timestamp);
-
             recordingLog.commitLogPosition(leadershipTermId, newPosition);
         }
 
@@ -117,6 +147,7 @@ public class RecordingLogTest
                 entryTwo.recordingId, entryTwo.leadershipTermId, entryTwo.termBaseLogPosition, entryTwo.timestamp);
 
             recordingLog.tombstoneEntry(entryTwo.leadershipTermId, recordingLog.nextEntryIndex() - 1);
+            assertThat(recordingLog.entries().size(), is(1));
         }
 
         try (RecordingLog recordingLog = new RecordingLog(TEMP_DIR))
@@ -147,6 +178,61 @@ public class RecordingLogTest
         assertThat(snapshots.get(1).serviceId, is(0));
         assertThat(snapshots.get(2).serviceId, is(1));
         assertThat(snapshots.get(3).serviceId, is(2));
+    }
+
+    @Test
+    public void shouldTombstoneLatestSnapshot()
+    {
+        final long termBaseLogPosition = 0L;
+        final long logIncrement = 640L;
+        long leadershipTermId = 7L;
+        long logPosition = 0L;
+        long timestamp = 1000L;
+        long recordingId = 1L;
+
+        try (RecordingLog recordingLog = new RecordingLog(TEMP_DIR))
+        {
+            recordingLog.appendTerm(recordingId++, leadershipTermId, termBaseLogPosition, timestamp);
+
+            timestamp += 1;
+            logPosition += logIncrement;
+
+            recordingLog.appendSnapshot(
+                recordingId++, leadershipTermId, termBaseLogPosition, logPosition, timestamp, 0);
+            recordingLog.appendSnapshot(
+                recordingId++, leadershipTermId, termBaseLogPosition, logPosition, timestamp, SERVICE_ID);
+
+            timestamp += 1;
+            logPosition += logIncrement;
+
+            recordingLog.appendSnapshot(
+                recordingId++, leadershipTermId, termBaseLogPosition, logPosition, timestamp, 0);
+            recordingLog.appendSnapshot(
+                recordingId++, leadershipTermId, termBaseLogPosition, logPosition, timestamp, SERVICE_ID);
+
+            leadershipTermId++;
+            recordingLog.appendTerm(recordingId, leadershipTermId, logPosition, timestamp);
+
+            assertTrue(recordingLog.tombstoneLatestSnapshot());
+            assertThat(recordingLog.entries().size(), is(4));
+        }
+
+        try (RecordingLog recordingLog = new RecordingLog(TEMP_DIR))
+        {
+            assertThat(recordingLog.entries().size(), is(4));
+            assertEquals(2L, recordingLog.getLatestSnapshot(0).recordingId);
+            assertEquals(3L, recordingLog.getLatestSnapshot(SERVICE_ID).recordingId);
+
+            assertTrue(recordingLog.tombstoneLatestSnapshot());
+            assertThat(recordingLog.entries().size(), is(2));
+        }
+
+        try (RecordingLog recordingLog = new RecordingLog(TEMP_DIR))
+        {
+            assertThat(recordingLog.entries().size(), is(2));
+            assertFalse(recordingLog.tombstoneLatestSnapshot());
+            assertEquals(leadershipTermId, recordingLog.getTermEntry(leadershipTermId).leadershipTermId);
+        }
     }
 
     private static void addRecordingLogEntry(

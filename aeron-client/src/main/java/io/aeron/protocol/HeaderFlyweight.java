@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,8 +15,10 @@
  */
 package io.aeron.protocol;
 
+import org.agrona.LangUtil;
 import org.agrona.concurrent.UnsafeBuffer;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
@@ -191,5 +193,55 @@ public class HeaderFlyweight extends UnsafeBuffer
         putInt(FRAME_LENGTH_FIELD_OFFSET, length, LITTLE_ENDIAN);
 
         return this;
+    }
+
+    /**
+     * Convert header flags to an array of chars to be human readable.
+     *
+     * @param flags to be converted.
+     * @return header flags converted to an array of chars to be human readable.
+     */
+    public static char[] flagsToChars(final short flags)
+    {
+        final char[] chars = new char[]{ '0', '0', '0', '0', '0', '0', '0', '0' };
+        final int length = chars.length;
+        short mask = (short)(1 << (length - 1));
+
+        for (int i = 0; i < length; i++)
+        {
+            if ((flags & mask) == mask)
+            {
+                chars[i] = '1';
+            }
+
+            mask >>= 1;
+        }
+
+        return chars;
+    }
+
+    /**
+     * Append header flags to an {@link Appendable} to be human readable.
+     *
+     * @param flags      to be converted.
+     * @param appendable to append flags to.
+     */
+    public static void appendFlagsAsChars(final short flags, final Appendable appendable)
+    {
+        final int length = 8;
+        short mask = (short)(1 << (length - 1));
+
+        try
+        {
+            for (int i = 0; i < length; i++)
+            {
+                appendable.append((flags & mask) == mask ? '1' : '0');
+                mask >>= 1;
+            }
+        }
+        catch (final IOException ex)
+        {
+            LangUtil.rethrowUnchecked(ex);
+        }
     }
 }

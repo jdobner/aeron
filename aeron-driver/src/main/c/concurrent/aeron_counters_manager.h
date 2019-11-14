@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -45,6 +45,9 @@ aeron_counter_metadata_descriptor_t;
 
 #define AERON_COUNTERS_MANAGER_VALUE_LENGTH (sizeof(aeron_counter_value_descriptor_t))
 #define AERON_COUNTERS_MANAGER_METADATA_LENGTH (sizeof(aeron_counter_metadata_descriptor_t))
+
+#define AERON_COUNTERS_METADATA_BUFFER_LENGTH(v) \
+((v) * (AERON_COUNTERS_MANAGER_METADATA_LENGTH / AERON_COUNTERS_MANAGER_VALUE_LENGTH))
 
 #define AERON_COUNTER_RECORD_UNUSED (0)
 #define AERON_COUNTER_RECORD_ALLOCATED (1)
@@ -91,6 +94,9 @@ int32_t aeron_counters_manager_allocate(
     size_t key_length,
     const char *label,
     size_t label_length);
+
+void aeron_counters_manager_update_label(
+    volatile aeron_counters_manager_t *manager, int32_t counter_id, size_t label_length, const char *label);
 
 int32_t aeron_counters_manager_next_counter_id(volatile aeron_counters_manager_t *manager);
 

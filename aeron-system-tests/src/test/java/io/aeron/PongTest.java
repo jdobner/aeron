@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -64,6 +64,7 @@ public class PongTest
         driver = MediaDriver.launch(
             new MediaDriver.Context()
                 .errorHandler(Throwable::printStackTrace)
+                .dirDeleteOnShutdown(true)
                 .publicationTermBufferLength(LogBufferDescriptor.TERM_MIN_LENGTH)
                 .threadingMode(ThreadingMode.SHARED));
 
@@ -83,8 +84,6 @@ public class PongTest
         CloseHelper.close(pongClient);
         CloseHelper.close(pingClient);
         CloseHelper.close(driver);
-
-        driver.context().deleteAeronDirectory();
     }
 
     @Test
@@ -94,8 +93,8 @@ public class PongTest
 
         while (pingPublication.offer(buffer, 0, BitUtil.SIZE_OF_INT) < 0L)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         final MutableInteger fragmentsRead = new MutableInteger();
@@ -137,8 +136,8 @@ public class PongTest
 
         while (pingPublication.offer(buffer, 0, BitUtil.SIZE_OF_INT) < 0L)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         final MutableInteger fragmentsRead = new MutableInteger();
@@ -172,8 +171,8 @@ public class PongTest
         // wait for disconnect to ensure we stay in lock step
         while (pingPublication.isConnected())
         {
-            SystemTest.checkInterruptedStatus();
             Thread.sleep(100);
+            SystemTest.checkInterruptedStatus();
         }
 
         // restart Pong side
@@ -184,8 +183,8 @@ public class PongTest
 
         while (pingPublication.offer(buffer, 0, BitUtil.SIZE_OF_INT) < 0L)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         SystemTest.executeUntil(
@@ -222,8 +221,8 @@ public class PongTest
     {
         while (pongPublication.offer(buffer, offset, length) < 0L)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
     }
 }

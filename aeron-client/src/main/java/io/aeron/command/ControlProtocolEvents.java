@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -87,6 +87,11 @@ public class ControlProtocolEvents
      */
     public static final int REMOVE_RCV_DESTINATION = 0x0D;
 
+    /**
+     * Request the driver to terminate.
+     */
+    public static final int TERMINATE_DRIVER = 0x0E;
+
     // Media Driver to Clients
 
     /**
@@ -133,4 +138,9 @@ public class ControlProtocolEvents
      * Inform clients of removal of counter.
      */
     public static final int ON_UNAVAILABLE_COUNTER = 0x0F09;
+
+    /**
+     * Inform clients of client timeout.
+     */
+    public static final int ON_CLIENT_TIMEOUT = 0x0F0A;
 }

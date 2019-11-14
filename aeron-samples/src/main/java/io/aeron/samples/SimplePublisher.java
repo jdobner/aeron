@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -41,7 +41,7 @@ public class SimplePublisher
         // for internal use and should not be used by applications.
         final int streamId = 10;
 
-        System.out.println("Publishing to " + channel + " on stream Id " + streamId);
+        System.out.println("Publishing to " + channel + " on stream id " + streamId);
 
         // Create a context, needed for client connection to media driver
         // A separate media driver process needs to be running prior to starting this application
@@ -61,7 +61,7 @@ public class SimplePublisher
             final long deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
             while (!publication.isConnected())
             {
-                if (System.nanoTime() >= deadlineNs)
+                if ((deadlineNs - System.nanoTime()) < 0)
                 {
                     System.out.println("Failed to connect to subscriber");
                     return;

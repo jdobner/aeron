@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,16 +19,22 @@
 #define _GNU_SOURCE
 #endif
 
+#include "util/aeron_platform.h"
+#if  defined(AERON_COMPILER_MSVC) && defined(AERON_CPU_X64)
+#include <io.h>
+#else 
 #include <unistd.h>
-#include <sys/socket.h>
+#endif
+
+#include "aeron_socket.h"
+
 #include <string.h>
-#include <net/if.h>
 #include <fcntl.h>
-#include <netinet/ip.h>
 #include <errno.h>
 #include "util/aeron_error.h"
 #include "util/aeron_netutil.h"
 #include "aeron_udp_channel_transport.h"
+#include "concurrent/aeron_thread.h"
 
 #if !defined(HAVE_STRUCT_MMSGHDR)
 struct mmsghdr
@@ -45,14 +51,17 @@ int aeron_udp_channel_transport_init(
     unsigned int multicast_if_index,
     uint8_t ttl,
     size_t socket_rcvbuf,
-    size_t socket_sndbuf)
+    size_t socket_sndbuf,
+    aeron_driver_context_t *context,
+    aeron_udp_channel_transport_affinity_t affinity)
 {
     bool is_ipv6, is_multicast;
     struct sockaddr_in *in4 = (struct sockaddr_in *)bind_addr;
     struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)bind_addr;
 
     transport->fd = -1;
-    if ((transport->fd = socket(bind_addr->ss_family, SOCK_DGRAM, 0)) < 0)
+    transport->bindings_clientd = NULL;
+    if ((transport->fd = aeron_socket(bind_addr->ss_family, SOCK_DGRAM, 0)) < 0)
     {
         goto error;
     }
@@ -213,22 +222,12 @@ int aeron_udp_channel_transport_init(
         }
     }
 
-    int flags;
 
-    if ((flags = fcntl(transport->fd, F_GETFL, 0)) < 0)
+    if(set_socket_non_blocking(transport->fd) < 0)
     {
         int errcode = errno;
-
-        aeron_set_err(errcode, "fcntl(F_GETFL): %s", strerror(errcode));
-        goto error;
-    }
-
-    flags |= O_NONBLOCK;
-    if (fcntl(transport->fd, F_SETFL, flags) < 0)
-    {
-        int errcode = errno;
-
-        aeron_set_err(errcode, "fcntl(F_SETFL): %s", strerror(errcode));
+        
+        aeron_set_err(errcode, "set_socket_non_blocking: %s", strerror(errcode));
         goto error;
     }
 
@@ -248,7 +247,7 @@ int aeron_udp_channel_transport_close(aeron_udp_channel_transport_t *transport)
 {
     if (transport->fd != -1)
     {
-        close(transport->fd);
+        aeron_close_socket(transport->fd);
     }
 
     return 0;
@@ -258,6 +257,7 @@ int aeron_udp_channel_transport_recvmmsg(
     aeron_udp_channel_transport_t *transport,
     struct mmsghdr *msgvec,
     size_t vlen,
+    int64_t *bytes_rcved,
     aeron_udp_transport_recv_func_t recv_func,
     void *clientd)
 {
@@ -291,6 +291,7 @@ int aeron_udp_channel_transport_recvmmsg(
                 msgvec[i].msg_hdr.msg_iov[0].iov_base,
                 msgvec[i].msg_len,
                 msgvec[i].msg_hdr.msg_name);
+            *bytes_rcved += msgvec[i].msg_len;
         }
 
         return result;
@@ -326,6 +327,7 @@ int aeron_udp_channel_transport_recvmmsg(
             msgvec[i].msg_hdr.msg_iov[0].iov_base,
             msgvec[i].msg_len,
             msgvec[i].msg_hdr.msg_name);
+        *bytes_rcved += msgvec[i].msg_len;
         work_count++;
     }
 
@@ -400,4 +402,21 @@ int aeron_udp_channel_transport_get_so_rcvbuf(aeron_udp_channel_transport_t *tra
     }
 
     return 0;
+}
+
+int aeron_udp_channel_transport_bind_addr_and_port(
+    aeron_udp_channel_transport_t *transport, char *buffer, size_t length)
+{
+    struct sockaddr_storage addr;
+    socklen_t addr_len = sizeof(addr);
+
+    if (getsockname(transport->fd, (struct sockaddr *)&addr, &addr_len) < 0)
+    {
+        int errcode = errno;
+
+        aeron_set_err(errcode, "getsockname %s:%d: %s", __FILE__, __LINE__, strerror(errcode));
+        return -1;
+    }
+
+    return aeron_format_source_identity(buffer, length, &addr);
 }

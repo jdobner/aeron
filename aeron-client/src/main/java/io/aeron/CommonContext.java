@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,8 +15,8 @@
  */
 package io.aeron;
 
-import io.aeron.exceptions.AeronException;
-import io.aeron.exceptions.DriverTimeoutException;
+import io.aeron.exceptions.*;
+import org.agrona.DirectBuffer;
 import org.agrona.IoUtil;
 import org.agrona.SystemUtil;
 import org.agrona.concurrent.AtomicBuffer;
@@ -32,12 +32,14 @@ import java.nio.MappedByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.Consumer;
 
 import static io.aeron.Aeron.sleep;
-import static io.aeron.CncFileDescriptor.CNC_VERSION;
+import static io.aeron.CncFileDescriptor.*;
 import static java.lang.Long.getLong;
 import static java.lang.System.getProperty;
+import static java.util.concurrent.atomic.AtomicIntegerFieldUpdater.newUpdater;
 
 /**
  * This class provides the Media Driver and client with common configuration for the Aeron directory.
@@ -50,8 +52,29 @@ import static java.lang.System.getProperty;
  * <li><code>aeron.dir</code>: Use value as directory name for Aeron buffers and status.</li>
  * </ul>
  */
-public class CommonContext implements AutoCloseable, Cloneable
+public class CommonContext implements Cloneable
 {
+    /**
+     * Condition to specify a triple state conditional of always override to be true, always override to be false,
+     * or infer value.
+     */
+    public enum InferableBoolean
+    {
+        FORCE_FALSE,
+        FORCE_TRUE,
+        INFER;
+
+        public static InferableBoolean parse(final String value)
+        {
+            if (null == value || "infer".equalsIgnoreCase(value))
+            {
+                return INFER;
+            }
+
+            return "true".equalsIgnoreCase(value) ? FORCE_TRUE : FORCE_FALSE;
+        }
+    }
+
     /**
      * Property name for driver timeout after which the driver is considered inactive.
      */
@@ -156,16 +179,6 @@ public class CommonContext implements AutoCloseable, Cloneable
     public static final String MDC_CONTROL_MODE_PARAM_NAME = "control-mode";
 
     /**
-     * Key for the session id for a publication or restricted subscription.
-     */
-    public static final String SESSION_ID_PARAM_NAME = "session-id";
-
-    /**
-     * Key for the linger timeout for a publication to wait around after draining in nanoseconds.
-     */
-    public static final String LINGER_PARAM_NAME = "linger";
-
-    /**
      * Valid value for {@link #MDC_CONTROL_MODE_PARAM_NAME} when manual control is desired.
      */
     public static final String MDC_CONTROL_MODE_MANUAL = "manual";
@@ -176,7 +189,18 @@ public class CommonContext implements AutoCloseable, Cloneable
     public static final String MDC_CONTROL_MODE_DYNAMIC = "dynamic";
 
     /**
-     * Parameter name for channel URI param to indicate if a subscribed must be reliable or not. Value is boolean.
+     * Key for the session id for a publication or restricted subscription.
+     */
+    public static final String SESSION_ID_PARAM_NAME = "session-id";
+
+    /**
+     * Key for the linger timeout for a publication to wait around after draining in nanoseconds.
+     */
+    public static final String LINGER_PARAM_NAME = "linger";
+
+    /**
+     * Parameter name for channel URI param to indicate if a subscribed stream must be reliable or not.
+     * Value is boolean with true to recover loss and false to gap fill.
      */
     public static final String RELIABLE_STREAM_PARAM_NAME = "reliable";
 
@@ -197,8 +221,51 @@ public class CommonContext implements AutoCloseable, Cloneable
 
     /**
      * Parameter name for channel URI param to indicate an alias for the given URI. Value not interpreted by Aeron.
+     * <p>
+     * This is a reserved application level param used to identify a particular channel for application purposes.
      */
     public static final String ALIAS_PARAM_NAME = "alias";
+
+    /**
+     * Parameter name for channel URI param to indicate if End of Stream (EOS) should be sent or not. Value is boolean.
+     */
+    public static final String EOS_PARAM_NAME = "eos";
+
+    /**
+     * Parameter name for channel URI param to indicate if a subscription should tether for local flow control.
+     * Value is boolean. A tether only applies when there is more than one matching active subscription. If tether is
+     * true then that subscription is included in flow control. If only one subscription then it tethers pace.
+     */
+    public static final String TETHER_PARAM_NAME = "tether";
+
+    /**
+     * Parameter name for channel URI param to indicate Subscription represents a group member or individual
+     * from the perspective of message reception. This can inform loss handling and similar semantics.
+     * <p>
+     * When configuring an subscription for an MDC publication then should be added as this is effective multicast.
+     * @see CommonContext#MDC_CONTROL_MODE_PARAM_NAME
+     * @see CommonContext#MDC_CONTROL_PARAM_NAME
+     */
+    public static final String GROUP_PARAM_NAME = "group";
+
+    /**
+     * Parameter name for Subscription URI param to indicate if Images that go unavailable should be allowed to
+     * rejoin after a short cooldown or not.
+     */
+    public static final String REJOIN_PARAM_NAME = "rejoin";
+
+    /**
+     * Parameter name for Subscription URI param to indicate the congestion control algorithm to be used.
+     * Options include {@code static} and {@code cubic}.
+     */
+    public static final String CONGESTION_CONTROL_PARAM_NAME = "cc";
+
+    /**
+     * Using an integer because there is no support for boolean. 1 is concluded, 0 is not concluded.
+     */
+    private static final AtomicIntegerFieldUpdater<CommonContext> IS_CONCLUDED_UPDATER = newUpdater(
+        CommonContext.class, "isConcluded");
+    private volatile int isConcluded;
 
     private long driverTimeoutMs = DRIVER_TIMEOUT_MS;
     private String aeronDirectoryName = getAeronDirectoryName();
@@ -223,7 +290,7 @@ public class CommonContext implements AutoCloseable, Cloneable
 
         if (null == baseDirName)
         {
-            baseDirName = IoUtil.tmpDirName() + "aeron";
+            baseDirName = SystemUtil.tmpDirName() + "aeron";
         }
 
         AERON_DIR_PROP_DEFAULT = baseDirName + '-' + System.getProperty("user.name", "default");
@@ -274,6 +341,11 @@ public class CommonContext implements AutoCloseable, Cloneable
      */
     public CommonContext conclude()
     {
+        if (0 != IS_CONCLUDED_UPDATER.getAndSet(this, 1))
+        {
+            throw new ConcurrentConcludeException();
+        }
+
         concludeAeronDirectory();
 
         cncFile = new File(aeronDirectory, CncFileDescriptor.CNC_FILE);
@@ -533,22 +605,62 @@ public class CommonContext implements AutoCloseable, Cloneable
             sleep(1);
         }
 
-        if (CNC_VERSION != cncVersion)
-        {
-            throw new AeronException(
-                "Aeron CnC version does not match: required=" + CNC_VERSION + " version=" + cncVersion);
-        }
+        CncFileDescriptor.checkVersion(cncVersion);
 
         final ManyToOneRingBuffer toDriverBuffer = new ManyToOneRingBuffer(
             CncFileDescriptor.createToDriverBuffer(cncByteBuffer, cncMetaDataBuffer));
 
-        final long timestamp = toDriverBuffer.consumerHeartbeatTime();
-        final long now = System.currentTimeMillis();
-        final long timestampAge = now - timestamp;
+        final long timestampMs = toDriverBuffer.consumerHeartbeatTime();
+        final long nowMs = System.currentTimeMillis();
+        final long timestampAgeMs = nowMs - timestampMs;
 
-        logger.accept("INFO: Aeron toDriver consumer heartbeat is (ms): " + timestampAge);
+        logger.accept("INFO: Aeron toDriver consumer heartbeat is (ms): " + timestampAgeMs);
 
-        return timestampAge <= driverTimeoutMs;
+        return timestampAgeMs <= driverTimeoutMs;
+    }
+
+    /**
+     * Request a driver to run its termination hook.
+     *
+     * @param directory for the driver.
+     * @param tokenBuffer containing the optional token for the request.
+     * @param tokenOffset within the tokenBuffer at which the token begins.
+     * @param tokenLength of the token in the tokenBuffer.
+     * @return true if request was sent or false if request could not be sent.
+     */
+    public static boolean requestDriverTermination(
+        final File directory,
+        final DirectBuffer tokenBuffer,
+        final int tokenOffset,
+        final int tokenLength)
+    {
+        final File cncFile = new File(directory, CncFileDescriptor.CNC_FILE);
+
+        if (cncFile.exists() && cncFile.length() > 0)
+        {
+            final MappedByteBuffer cncByteBuffer = IoUtil.mapExistingFile(cncFile, "CnC file");
+            try
+            {
+                final UnsafeBuffer cncMetaDataBuffer = CncFileDescriptor.createMetaDataBuffer(cncByteBuffer);
+                final int cncVersion = cncMetaDataBuffer.getIntVolatile(cncVersionOffset(0));
+
+                CncFileDescriptor.checkVersion(cncVersion);
+
+                final ManyToOneRingBuffer toDriverBuffer = new ManyToOneRingBuffer(
+                    CncFileDescriptor.createToDriverBuffer(cncByteBuffer, cncMetaDataBuffer));
+                final long clientId = toDriverBuffer.nextCorrelationId();
+
+                final DriverProxy driverProxy = new DriverProxy(toDriverBuffer, clientId);
+
+                return driverProxy.terminateDriver(tokenBuffer, tokenOffset, tokenLength);
+            }
+            finally
+            {
+                IoUtil.unmap(cncByteBuffer);
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -587,11 +699,7 @@ public class CommonContext implements AutoCloseable, Cloneable
         final UnsafeBuffer cncMetaDataBuffer = CncFileDescriptor.createMetaDataBuffer(cncByteBuffer);
         final int cncVersion = cncMetaDataBuffer.getInt(CncFileDescriptor.cncVersionOffset(0));
 
-        if (CNC_VERSION != cncVersion)
-        {
-            throw new AeronException(
-                "Aeron CnC version does not match: required=" + CNC_VERSION + " version=" + cncVersion);
-        }
+        CncFileDescriptor.checkVersion(cncVersion);
 
         int distinctErrorCount = 0;
         final AtomicBuffer buffer = CncFileDescriptor.createErrorLogBuffer(cncByteBuffer, cncMetaDataBuffer);

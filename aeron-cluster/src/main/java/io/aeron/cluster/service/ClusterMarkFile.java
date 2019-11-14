@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -45,13 +45,17 @@ import static io.aeron.Aeron.NULL_VALUE;
  */
 public class ClusterMarkFile implements AutoCloseable
 {
+    public static final int MAJOR_VERSION = 0;
+    public static final int MINOR_VERSION = 0;
+    public static final int PATCH_VERSION = 1;
+    public static final int SEMANTIC_VERSION = SemanticVersion.compose(MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
+
+    public static final int HEADER_LENGTH = 8 * 1024;
+    public static final int VERSION_FAILED = -1;
+
     public static final String FILE_EXTENSION = ".dat";
     public static final String FILENAME = "cluster-mark" + FILE_EXTENSION;
     public static final String SERVICE_FILENAME_PREFIX = "cluster-mark-service-";
-    public static final String SERVICE_FILENAME_FORMAT = SERVICE_FILENAME_PREFIX + "%d" + FILE_EXTENSION;
-    public static final int HEADER_LENGTH = 8 * 1024;
-    public static final int VERSION_READY = MarkFileHeaderDecoder.SCHEMA_VERSION;
-    public static final int VERSION_FAILED = -1;
 
     private final MarkFileHeaderDecoder headerDecoder = new MarkFileHeaderDecoder();
     private final MarkFileHeaderEncoder headerEncoder = new MarkFileHeaderEncoder();
@@ -78,17 +82,14 @@ public class ClusterMarkFile implements AutoCloseable
             epochClock,
             (version) ->
             {
-                if (version != MarkFileHeaderDecoder.SCHEMA_VERSION)
+                if (VERSION_FAILED == version && markFileExists)
                 {
-                    if (VERSION_FAILED == version && markFileExists)
-                    {
-                        System.err.println("mark file version -1 indicates error on previous startup.");
-                    }
-                    else
-                    {
-                        throw new ClusterException("mark file version " + version +
-                            " does not match software:" + MarkFileHeaderDecoder.SCHEMA_VERSION);
-                    }
+                    System.err.println("mark file version -1 indicates error on previous startup.");
+                }
+                else if (SemanticVersion.major(version) != MAJOR_VERSION)
+                {
+                    throw new IllegalArgumentException("mark file major version " + SemanticVersion.major(version) +
+                        " does not match software:" + MAJOR_VERSION);
                 }
             },
             null);
@@ -117,8 +118,11 @@ public class ClusterMarkFile implements AutoCloseable
 
         if (existingType != ClusterComponentType.NULL && existingType != type)
         {
-            throw new IllegalStateException(
-                "existing Mark file type " + existingType + " not same as required type " + type);
+            if (existingType != ClusterComponentType.BACKUP || ClusterComponentType.CONSENSUS_MODULE != type)
+            {
+                throw new IllegalStateException(
+                    "existing Mark file type " + existingType + " not same as required type " + type);
+            }
         }
 
         headerEncoder.componentType(type);
@@ -144,10 +148,10 @@ public class ClusterMarkFile implements AutoCloseable
             epochClock,
             (version) ->
             {
-                if (version != MarkFileHeaderDecoder.SCHEMA_VERSION)
+                if (SemanticVersion.major(version) != MAJOR_VERSION)
                 {
-                    throw new IllegalArgumentException("mark file version " + version +
-                        " does not match software:" + MarkFileHeaderDecoder.SCHEMA_VERSION);
+                    throw new IllegalArgumentException("mark file major version " + SemanticVersion.major(version) +
+                        " does not match software:" + MAJOR_VERSION);
                 }
             },
             logger);
@@ -177,11 +181,15 @@ public class ClusterMarkFile implements AutoCloseable
      * Record the fact that a node has voted in a current election for a candidate so it can survive a restart.
      *
      * @param candidateTermId to record that a vote has taken place.
+     * @param fileSyncLevel   as defined by cluster file sync level.
      */
-    public void candidateTermId(final long candidateTermId)
+    public void candidateTermId(final long candidateTermId, final int fileSyncLevel)
     {
         buffer.putLongVolatile(MarkFileHeaderEncoder.candidateTermIdEncodingOffset(), candidateTermId);
-        markFile.mappedByteBuffer().force();
+        if (fileSyncLevel > 0)
+        {
+            markFile.mappedByteBuffer().force();
+        }
     }
 
     public int memberId()
@@ -197,14 +205,12 @@ public class ClusterMarkFile implements AutoCloseable
 
     public void signalReady()
     {
-        markFile.signalReady(VERSION_READY);
-        markFile.mappedByteBuffer().force();
+        markFile.signalReady(SEMANTIC_VERSION);
     }
 
     public void signalFailedStart()
     {
         markFile.signalReady(VERSION_FAILED);
-        markFile.mappedByteBuffer().force();
     }
 
     public void updateActivityTimestamp(final long nowMs)
@@ -251,7 +257,7 @@ public class ClusterMarkFile implements AutoCloseable
 
                 if (null != logger)
                 {
-                    logger.println("WARNING: Existing errors saved to: " + errorLogFilename);
+                    logger.println("WARNING: existing errors saved to: " + errorLogFilename);
                 }
 
                 try (FileOutputStream out = new FileOutputStream(errorLogFilename))
@@ -315,6 +321,6 @@ public class ClusterMarkFile implements AutoCloseable
 
     public static String markFilenameForService(final int serviceId)
     {
-        return String.format(SERVICE_FILENAME_FORMAT, serviceId);
+        return SERVICE_FILENAME_PREFIX + serviceId + FILE_EXTENSION;
     }
 }

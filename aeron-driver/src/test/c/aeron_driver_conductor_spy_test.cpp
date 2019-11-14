@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -159,7 +159,7 @@ TEST_F(DriverConductorSpyTest, shouldBeAbleToAddSingleSubscriptionThenAddSingleP
             EXPECT_EQ(response.streamId(), STREAM_ID_1);
             EXPECT_EQ(response.sessionId(), session_id);
 
-            EXPECT_EQ(response.subscriberRegistrationId(), sub_id);
+            EXPECT_EQ(response.subscriptionRegistrationId(), sub_id);
 
             EXPECT_EQ(log_file_name, response.logFileName());
             EXPECT_EQ(AERON_IPC_CHANNEL, response.sourceIdentity());
@@ -218,7 +218,7 @@ TEST_F(DriverConductorSpyTest, shouldBeAbleToAddSinglePublicationThenAddSingleSu
 
             EXPECT_EQ(response.streamId(), STREAM_ID_1);
             EXPECT_EQ(response.sessionId(), session_id);
-            EXPECT_EQ(response.subscriberRegistrationId(), sub_id);
+            EXPECT_EQ(response.subscriptionRegistrationId(), sub_id);
 
             EXPECT_EQ(log_file_name, response.logFileName());
             EXPECT_EQ(AERON_IPC_CHANNEL, response.sourceIdentity());
@@ -287,7 +287,7 @@ TEST_F(DriverConductorSpyTest, shouldBeAbleToAddMultipleSubscriptionWithSameStre
 
             EXPECT_EQ(response.streamId(), STREAM_ID_1);
             EXPECT_EQ(response.sessionId(), session_id);
-            EXPECT_TRUE(response.subscriberRegistrationId() == sub_id_1 || response.subscriberRegistrationId() == sub_id_2);
+            EXPECT_TRUE(response.subscriptionRegistrationId() == sub_id_1 || response.subscriptionRegistrationId() == sub_id_2);
 
             EXPECT_EQ(log_file_name, response.logFileName());
             EXPECT_EQ(AERON_IPC_CHANNEL, response.sourceIdentity());
@@ -352,7 +352,7 @@ TEST_F(DriverConductorSpyTest, shouldBeAbleToAddSingleSubscriptionThenAddMultipl
             const command::ImageBuffersReadyFlyweight response(buffer, offset);
 
             EXPECT_EQ(response.streamId(), STREAM_ID_1);
-            EXPECT_EQ(response.subscriberRegistrationId(), sub_id);
+            EXPECT_EQ(response.subscriptionRegistrationId(), sub_id);
             EXPECT_EQ(response.sessionId(), session_id_1);
             EXPECT_EQ(response.correlationId(), pub_id_1);
             EXPECT_EQ(log_file_name_1, response.logFileName());
@@ -376,7 +376,7 @@ TEST_F(DriverConductorSpyTest, shouldBeAbleToAddSingleSubscriptionThenAddMultipl
             const command::ImageBuffersReadyFlyweight response(buffer, offset);
 
             EXPECT_EQ(response.streamId(), STREAM_ID_1);
-            EXPECT_EQ(response.subscriberRegistrationId(), sub_id);
+            EXPECT_EQ(response.subscriptionRegistrationId(), sub_id);
             EXPECT_EQ(response.sessionId(), session_id_2);
             EXPECT_EQ(response.correlationId(), pub_id_2);
             EXPECT_EQ(log_file_name_2, response.logFileName());
@@ -437,7 +437,7 @@ TEST_F(DriverConductorSpyTest, shouldNotLinkSubscriptionOnAddPublicationAfterFir
             const command::ImageBuffersReadyFlyweight response(buffer, offset);
 
             EXPECT_EQ(response.streamId(), STREAM_ID_1);
-            EXPECT_EQ(response.subscriberRegistrationId(), sub_id);
+            EXPECT_EQ(response.subscriptionRegistrationId(), sub_id);
             EXPECT_EQ(response.sessionId(), session_id);
             EXPECT_EQ(response.correlationId(), pub_id_1);
             EXPECT_EQ(log_file_name, response.logFileName());
@@ -474,6 +474,17 @@ TEST_F(DriverConductorSpyTest, shouldBeAbleToTimeoutSubscription)
         m_context.m_context->publication_linger_timeout_ns + (m_context.m_context->client_liveness_timeout_ns * 2));
     EXPECT_EQ(aeron_driver_conductor_num_clients(&m_conductor.m_conductor), 0u);
     EXPECT_EQ(aeron_driver_conductor_num_spy_subscriptions(&m_conductor.m_conductor), 0u);
+
+    auto handler = [&](std::int32_t msgTypeId, AtomicBuffer& buffer, util::index_t offset, util::index_t length)
+    {
+        ASSERT_EQ(msgTypeId, AERON_RESPONSE_ON_CLIENT_TIMEOUT);
+
+        const command::ClientTimeoutFlyweight response(buffer, offset);
+
+        EXPECT_EQ(response.clientId(), client_id);
+    };
+
+    EXPECT_EQ(readAllBroadcastsFromConductor(handler), 1u);
 }
 
 TEST_F(DriverConductorSpyTest, shouldBeAbleToNotTimeoutSubscriptionOnKeepalive)

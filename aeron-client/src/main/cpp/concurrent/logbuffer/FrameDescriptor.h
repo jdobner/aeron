@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -142,13 +142,11 @@ inline static bool isPaddingFrame(const AtomicBuffer& logBuffer, util::index_t f
 
 inline static std::int32_t frameLengthVolatile(const AtomicBuffer& logBuffer, util::index_t frameOffset)
 {
-    // TODO: need to byte order to LITTLE_ENDIAN
     return logBuffer.getInt32Volatile(lengthOffset(frameOffset));
 }
 
 inline static void frameLengthOrdered(AtomicBuffer& logBuffer, util::index_t frameOffset, std::int32_t frameLength)
 {
-    // TODO: need to byte order to LITTLE_ENDIAN
     logBuffer.putInt32Ordered(lengthOffset(frameOffset), frameLength);
 }
 

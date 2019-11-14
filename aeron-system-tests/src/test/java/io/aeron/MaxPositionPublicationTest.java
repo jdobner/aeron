@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -37,6 +37,8 @@ public class MaxPositionPublicationTest
 
     private final MediaDriver driver = MediaDriver.launch(new MediaDriver.Context()
         .errorHandler(Throwable::printStackTrace)
+        .dirDeleteOnStart(true)
+        .dirDeleteOnShutdown(true)
         .threadingMode(ThreadingMode.SHARED));
 
     private final Aeron aeron = Aeron.connect();
@@ -46,7 +48,6 @@ public class MaxPositionPublicationTest
     {
         CloseHelper.close(aeron);
         CloseHelper.close(driver);
-        driver.context().deleteAeronDirectory();
     }
 
     @Test(timeout = 10_000)
@@ -69,8 +70,8 @@ public class MaxPositionPublicationTest
             long resultingPosition = publication.offer(srcBuffer, 0, MESSAGE_LENGTH);
             while (resultingPosition < 0)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
                 resultingPosition = publication.offer(srcBuffer, 0, MESSAGE_LENGTH);
             }
 

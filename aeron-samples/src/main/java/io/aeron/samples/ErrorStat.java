@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,6 @@ package io.aeron.samples;
 import io.aeron.CncFileDescriptor;
 import io.aeron.CommonContext;
 import org.agrona.DirectBuffer;
-import org.agrona.IoUtil;
 import org.agrona.concurrent.AtomicBuffer;
 import org.agrona.concurrent.errors.ErrorLogReader;
 
@@ -27,7 +26,6 @@ import java.nio.MappedByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
-import static io.aeron.CncFileDescriptor.CNC_VERSION;
 
 /**
  * Application to print out errors recorded in the command-and-control (cnc) file is maintained by media driver in
@@ -43,15 +41,11 @@ public class ErrorStat
         final File cncFile = CommonContext.newDefaultCncFile();
         System.out.println("Command `n Control file " + cncFile);
 
-        final MappedByteBuffer cncByteBuffer = IoUtil.mapExistingFile(cncFile, "cnc");
+        final MappedByteBuffer cncByteBuffer = SamplesUtil.mapExistingFileReadOnly(cncFile);
         final DirectBuffer cncMetaDataBuffer = CncFileDescriptor.createMetaDataBuffer(cncByteBuffer);
         final int cncVersion = cncMetaDataBuffer.getInt(CncFileDescriptor.cncVersionOffset(0));
 
-        if (CNC_VERSION != cncVersion)
-        {
-            throw new IllegalStateException(
-                "Aeron CnC version does not match: version=" + cncVersion + " required=" + CNC_VERSION);
-        }
+        CncFileDescriptor.checkVersion(cncVersion);
 
         final AtomicBuffer buffer = CncFileDescriptor.createErrorLogBuffer(cncByteBuffer, cncMetaDataBuffer);
         final int distinctErrorCount = ErrorLogReader.read(buffer, ErrorStat::accept);

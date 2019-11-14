@@ -4,7 +4,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *  https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,8 +31,8 @@ class SessionWorker<T extends Session> implements Agent
 {
     private final ArrayList<T> sessions = new ArrayList<>();
     private final String roleName;
-    private boolean isClosed = false;
     protected final ErrorHandler errorHandler;
+    private boolean isClosed = false;
 
     SessionWorker(final String roleName, final ErrorHandler errorHandler)
     {
@@ -53,7 +53,15 @@ class SessionWorker<T extends Session> implements Agent
         for (int lastIndex = sessions.size() - 1, i = lastIndex; i >= 0; i--)
         {
             final T session = sessions.get(i);
-            workDone += session.doWork();
+            try
+            {
+                workDone += session.doWork();
+            }
+            catch (final Exception ex)
+            {
+                errorHandler.onError(ex);
+            }
+
             if (session.isDone())
             {
                 ArrayListUtil.fastUnorderedRemove(sessions, i, lastIndex--);
@@ -73,7 +81,14 @@ class SessionWorker<T extends Session> implements Agent
 
         isClosed = true;
 
-        preSessionsClose();
+        try
+        {
+            preSessionsClose();
+        }
+        catch (final Exception ex)
+        {
+            errorHandler.onError(ex);
+        }
 
         for (int i = 0, size = sessions.size(); i < size; i++)
         {
@@ -81,6 +96,10 @@ class SessionWorker<T extends Session> implements Agent
         }
 
         postSessionsClose();
+    }
+
+    protected void abort()
+    {
     }
 
     protected void closeSession(final T session)

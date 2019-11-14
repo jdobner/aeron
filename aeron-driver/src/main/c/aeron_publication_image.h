@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,31 +23,32 @@
 #include "aeron_loss_detector.h"
 #include "reports/aeron_loss_reporter.h"
 
-typedef enum aeron_publication_image_status_enum
+typedef enum aeron_publication_image_state_enum
 {
-    AERON_PUBLICATION_IMAGE_STATUS_INACTIVE,
-    AERON_PUBLICATION_IMAGE_STATUS_ACTIVE,
-    AERON_PUBLICATION_IMAGE_STATUS_LINGER,
-    AERON_PUBLICATION_IMAGE_STATUS_DONE
+    AERON_PUBLICATION_IMAGE_STATE_INACTIVE,
+    AERON_PUBLICATION_IMAGE_STATE_ACTIVE,
+    AERON_PUBLICATION_IMAGE_STATE_LINGER,
+    AERON_PUBLICATION_IMAGE_STATE_DONE
 }
-aeron_publication_image_status_t;
+aeron_publication_image_state_t;
 
 typedef struct aeron_publication_image_stct
 {
+    uint8_t padding_before[AERON_CACHE_LINE_LENGTH];
+
     struct aeron_publication_image_conductor_fields_stct
     {
+        bool is_reliable;
+        aeron_publication_image_state_t state;
         aeron_driver_managed_resource_t managed_resource;
         aeron_subscribable_t subscribable;
-        int64_t clean_position;
-        int64_t time_of_last_status_change_ns;
+        int64_t time_of_last_state_change_ns;
         int64_t liveness_timeout_ns;
-        bool is_reliable;
-        aeron_publication_image_status_t status;
+        int64_t clean_position;
     }
     conductor_fields;
 
-    uint8_t conductor_fields_pad[
-        (2 * AERON_CACHE_LINE_LENGTH) - sizeof(struct aeron_publication_image_conductor_fields_stct)];
+    uint8_t padding_after[AERON_CACHE_LINE_LENGTH];
 
     struct sockaddr_storage control_address;
     struct sockaddr_storage source_address;
@@ -79,12 +80,11 @@ typedef struct aeron_publication_image_stct
     size_t position_bits_to_shift;
     aeron_map_raw_log_close_func_t map_raw_log_close_func;
 
-    int64_t last_packet_timestamp_ns;
-
-    int64_t last_sm_change_number;
-    int64_t last_sm_position;
-    int64_t last_sm_position_window_limit;
-    int64_t last_loss_change_number;
+    volatile int64_t begin_loss_change;
+    volatile int64_t end_loss_change;
+    int32_t loss_term_id;
+    int32_t loss_term_offset;
+    size_t loss_length;
 
     volatile int64_t begin_sm_change;
     volatile int64_t end_sm_change;
@@ -92,11 +92,12 @@ typedef struct aeron_publication_image_stct
     int32_t next_sm_receiver_window_length;
     int64_t last_status_message_timestamp;
 
-    volatile int64_t begin_loss_change;
-    volatile int64_t end_loss_change;
-    int32_t loss_term_id;
-    int32_t loss_term_offset;
-    size_t loss_length;
+    int64_t last_packet_timestamp_ns;
+
+    int64_t last_sm_change_number;
+    int64_t last_sm_position;
+    int64_t last_sm_position_window_limit;
+    int64_t last_loss_change_number;
 
     bool is_end_of_stream;
 
@@ -129,11 +130,12 @@ int aeron_publication_image_create(
     aeron_loss_reporter_t *loss_reporter,
     bool is_reliable,
     bool is_sparse,
+    bool treat_as_multicast,
     aeron_system_counters_t *system_counters);
 
 int aeron_publication_image_close(aeron_counters_manager_t *counters_manager, aeron_publication_image_t *image);
 
-void aeron_publication_image_clean_buffer_to(aeron_publication_image_t *image, int64_t new_clean_position);
+void aeron_publication_image_clean_buffer_to(aeron_publication_image_t *image, int64_t position);
 
 void aeron_publication_image_on_gap_detected(void *clientd, int32_t term_id, int32_t term_offset, size_t length);
 
@@ -221,10 +223,15 @@ inline bool aeron_publication_image_is_drained(aeron_publication_image_t *image)
     return true;
 }
 
+inline bool aeron_publication_image_has_no_subscribers(aeron_publication_image_t *image)
+{
+    return (0 == image->conductor_fields.subscribable.length);
+}
+
 inline bool aeron_publication_image_is_accepting_subscriptions(aeron_publication_image_t *image)
 {
     return (image->conductor_fields.subscribable.length > 0 &&
-        image->conductor_fields.status == AERON_PUBLICATION_IMAGE_STATUS_ACTIVE);
+            image->conductor_fields.state == AERON_PUBLICATION_IMAGE_STATE_ACTIVE);
 }
 
 inline void aeron_publication_image_disconnect_endpoint(aeron_publication_image_t *image)

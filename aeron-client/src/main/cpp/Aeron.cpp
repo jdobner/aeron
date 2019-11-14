@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#define _DISABLE_EXTENDED_ALIGNED_STORAGE
 #include "Aeron.h"
 
 namespace aeron {
@@ -25,21 +26,11 @@ static const std::chrono::duration<long, std::milli> IDLE_SLEEP_MS_100(100);
 
 static const char* AGENT_NAME = "client-conductor";
 
-static long long currentTimeMillis()
-{
-    using namespace std::chrono;
-
-    system_clock::time_point now = system_clock::now();
-    milliseconds ms = duration_cast<milliseconds>(now.time_since_epoch());
-
-    return ms.count();
-}
-
 Aeron::Aeron(Context &context) :
     m_randomEngine(m_randomDevice()),
     m_sessionIdDistribution(-INT_MAX, INT_MAX),
     m_context(context.conclude()),
-    m_cncBuffer(mapCncFile(context)),
+    m_cncBuffer(mapCncFile(m_context)),
     m_toDriverAtomicBuffer(CncFileDescriptor::createToDriverBuffer(m_cncBuffer)),
     m_toClientsAtomicBuffer(CncFileDescriptor::createToClientsBuffer(m_cncBuffer)),
     m_countersMetadataBuffer(CncFileDescriptor::createCounterMetadataBuffer(m_cncBuffer)),
@@ -54,15 +45,17 @@ Aeron::Aeron(Context &context) :
         m_toClientsCopyReceiver,
         m_countersMetadataBuffer,
         m_countersValueBuffer,
-        context.m_onNewPublicationHandler,
-        context.m_onNewExclusivePublicationHandler,
-        context.m_onNewSubscriptionHandler,
-        context.m_exceptionHandler,
-        context.m_onAvailableCounterHandler,
-        context.m_onUnavailableCounterHandler,
-        context.m_mediaDriverTimeout,
-        context.m_resourceLingerTimeout,
-        CncFileDescriptor::clientLivenessTimeout(m_cncBuffer)),
+        m_context.m_onNewPublicationHandler,
+        m_context.m_onNewExclusivePublicationHandler,
+        m_context.m_onNewSubscriptionHandler,
+        m_context.m_exceptionHandler,
+        m_context.m_onAvailableCounterHandler,
+        m_context.m_onUnavailableCounterHandler,
+        m_context.m_onCloseClientHandler,
+        m_context.m_mediaDriverTimeout,
+        m_context.m_resourceLingerTimeout,
+        CncFileDescriptor::clientLivenessTimeout(m_cncBuffer),
+        m_context.m_preTouchMappedMemory),
     m_idleStrategy(IDLE_SLEEP_MS),
     m_conductorRunner(m_conductor, m_idleStrategy, m_context.m_exceptionHandler, AGENT_NAME),
     m_conductorInvoker(m_conductor, m_context.m_exceptionHandler)
@@ -123,10 +116,12 @@ inline MemoryMappedFile::ptr_t Aeron::mapCncFile(Context &context)
             std::this_thread::sleep_for(IDLE_SLEEP_MS_1);
         }
 
-        if (CncFileDescriptor::CNC_VERSION != cncVersion)
+        if (semanticVersionMajor(cncVersion) != semanticVersionMajor(CncFileDescriptor::CNC_VERSION))
         {
-            throw util::IllegalStateException(
-                "CnC file version not supported: " + std::to_string(cncVersion), SOURCEINFO);
+            throw AeronException("Aeron CnC version does not match:"
+               " app=" + semanticVersionToString(CncFileDescriptor::CNC_VERSION) +
+               " file=" + semanticVersionToString(cncVersion),
+               SOURCEINFO);
         }
 
         AtomicBuffer toDriverBuffer(CncFileDescriptor::createToDriverBuffer(cncBuffer));
@@ -160,6 +155,11 @@ inline MemoryMappedFile::ptr_t Aeron::mapCncFile(Context &context)
     }
 
     return cncBuffer;
+}
+
+std::string Aeron::version()
+{
+    return std::string("aeron version " AERON_VERSION_TXT " built " __DATE__ " " __TIME__);
 }
 
 }

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,7 +20,6 @@ import io.aeron.exceptions.AeronException;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.agrona.MutableDirectBuffer;
-import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.concurrent.ringbuffer.RingBuffer;
 
 import static io.aeron.command.ControlProtocolEvents.*;
@@ -30,8 +29,7 @@ import static io.aeron.command.ControlProtocolEvents.*;
  * <p>
  * Writes commands into the client conductor buffer.
  * <p>
- * <b>Note:</b> this class is not thread safe and is expecting to be called within {@link Aeron.Context#clientLock()}
- * with the exception of {@link #clientClose()} which is thread safe.
+ * <b>Note:</b> this class is not thread safe and is expecting to be called within {@link Aeron.Context#clientLock()}.
  */
 public class DriverProxy
 {
@@ -42,6 +40,7 @@ public class DriverProxy
     private final CorrelatedMessageFlyweight correlatedMessage = new CorrelatedMessageFlyweight();
     private final DestinationMessageFlyweight destinationMessage = new DestinationMessageFlyweight();
     private final CounterMessageFlyweight counterMessage = new CounterMessageFlyweight();
+    private final TerminateDriverFlyweight terminateDriver = new TerminateDriverFlyweight();
     private final RingBuffer toDriverCommandBuffer;
 
     public DriverProxy(final RingBuffer toDriverCommandBuffer, final long clientId)
@@ -54,6 +53,7 @@ public class DriverProxy
         removeMessage.wrap(buffer, 0);
         destinationMessage.wrap(buffer, 0);
         counterMessage.wrap(buffer, 0);
+        terminateDriver.wrap(buffer, 0);
 
         correlatedMessage.clientId(clientId);
     }
@@ -61,6 +61,11 @@ public class DriverProxy
     public long timeOfLastDriverKeepaliveMs()
     {
         return toDriverCommandBuffer.consumerHeartbeatTime();
+    }
+
+    public long clientId()
+    {
+        return correlatedMessage.clientId();
     }
 
     public long addPublication(final String channel, final int streamId)
@@ -151,11 +156,7 @@ public class DriverProxy
     public void sendClientKeepalive()
     {
         correlatedMessage.correlationId(0);
-
-        if (!toDriverCommandBuffer.write(CLIENT_KEEPALIVE, buffer, 0, CorrelatedMessageFlyweight.LENGTH))
-        {
-            throw new AeronException("could not send client keepalive command");
-        }
+        toDriverCommandBuffer.write(CLIENT_KEEPALIVE, buffer, 0, CorrelatedMessageFlyweight.LENGTH);
     }
 
     public long addDestination(final long registrationId, final String endpointChannel)
@@ -287,12 +288,16 @@ public class DriverProxy
 
     public void clientClose()
     {
-        final UnsafeBuffer buffer = new UnsafeBuffer(new byte[CorrelatedMessageFlyweight.LENGTH]);
-        new CorrelatedMessageFlyweight()
-            .wrap(buffer, 0)
-            .clientId(correlatedMessage.clientId())
-            .correlationId(Aeron.NULL_VALUE);
-
+        correlatedMessage.correlationId(Aeron.NULL_VALUE);
         toDriverCommandBuffer.write(CLIENT_CLOSE, buffer, 0, CorrelatedMessageFlyweight.LENGTH);
+    }
+
+    public boolean terminateDriver(final DirectBuffer tokenBuffer, final int tokenOffset, final int tokenLength)
+    {
+        correlatedMessage.correlationId(Aeron.NULL_VALUE);
+
+        terminateDriver.tokenBuffer(tokenBuffer, tokenOffset, tokenLength);
+
+        return toDriverCommandBuffer.write(TERMINATE_DRIVER, buffer, 0, terminateDriver.length());
     }
 }

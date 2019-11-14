@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -169,21 +169,16 @@ public class NakFlyweight extends HeaderFlyweight
 
     public String toString()
     {
-        final StringBuilder sb = new StringBuilder();
-        final String formattedFlags = String.format("%1$8s", Integer.toBinaryString(flags())).replace(' ', '0');
-
-        sb.append("NAK Message{")
-            .append("frame_length=").append(frameLength())
-            .append(" version=").append(version())
-            .append(" flags=").append(formattedFlags)
-            .append(" type=").append(headerType())
-            .append(" term_offset=").append(termOffset())
-            .append(" session_id=").append(sessionId())
-            .append(" stream_id=").append(streamId())
-            .append(" term_id=").append(termId())
-            .append(" length=").append(length())
-            .append("}");
-
-        return sb.toString();
+        return "NAK{" +
+            "frame-length=" + frameLength() +
+            " version=" + version() +
+            " flags=" + String.valueOf(flagsToChars(flags())) +
+            " type=" + headerType() +
+            " term-offset=" + termOffset() +
+            " session-id=" + sessionId() +
+            " stream-id=" + streamId() +
+            " term-id=" + termId() +
+            " length=" + length() +
+            "}";
     }
 }

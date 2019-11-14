@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -64,7 +64,18 @@ public:
      * @param context for configuration of the client.
      */
     Aeron(Context& context);
-    virtual ~Aeron();
+
+    ~Aeron();
+
+    /**
+     * Indicate if the instance is closed and can not longer be used.
+     *
+     * @return true is the instance is closed and can no longer be used, otherwise false.
+     */
+    inline bool isClosed()
+    {
+        return m_conductor.isClosed();
+    }
 
     /**
      * Create an Aeron instance and connect to the media driver.
@@ -77,6 +88,20 @@ public:
     inline static std::shared_ptr<Aeron> connect(Context& context)
     {
         return std::make_shared<Aeron>(context);
+    }
+
+    /**
+     * Create an Aeron instance and connect to the media driver.
+     * <p>
+     * Threads required for interacting with the media driver are created and managed within the Aeron instance.
+     *
+     * @return the new Aeron instance connected to the Media Driver.
+     */
+    inline static std::shared_ptr<Aeron> connect()
+    {
+        Context ctx;
+
+        return std::make_shared<Aeron>(ctx);
     }
 
     /**
@@ -220,6 +245,7 @@ public:
      */
     inline std::int64_t nextCorrelationId()
     {
+        m_conductor.ensureOpen();
         return m_toDriverRingBuffer.nextCorrelationId();
     }
 
@@ -264,6 +290,66 @@ public:
     }
 
     /**
+     * Add a handler to the list to be called when a counter becomes available.
+     *
+     * @param handler to be added to the available counters list.
+     */
+    inline void addAvailableCounterHandler(const on_available_counter_t& handler)
+    {
+        m_conductor.addAvailableCounterHandler(handler);
+    }
+
+    /**
+     * Remove a handler from the list to be called when a counter becomes available.
+     *
+     * @param handler to be removed from the available counters list.
+     */
+    inline void removeAvailableCounterHandler(const on_available_counter_t& handler)
+    {
+        m_conductor.removeAvailableCounterHandler(handler);
+    }
+
+    /**
+     * Add a handler to the list to be called when a counter becomes unavailable.
+     *
+     * @param handler to be added to the unavailable counters list.
+     */
+    inline void addUnavailableCounterHandler(const on_unavailable_counter_t& handler)
+    {
+        m_conductor.addUnavailableCounterHandler(handler);
+    }
+
+    /**
+     * Remove a handler from the list to be called when a counter becomes unavailable.
+     *
+     * @param handler to be removed from the unavailable counters list.
+     */
+    inline void removeUnavailableCounterHandler(const on_unavailable_counter_t& handler)
+    {
+        m_conductor.removeUnavailableCounterHandler(handler);
+    }
+
+    /**
+     * Add a handler to the list to be called when the client is closed.
+     *
+     * @param handler to be added to the close client handlers list.
+     */
+    inline void addCloseClientHandler(const on_close_client_t & handler)
+    {
+        m_conductor.addCloseClientHandler(handler);
+    }
+
+    /**
+     * Remove a handler from the list to be called when the client is closed.
+     *
+     * @param handler to be removed from the close client handlers list.
+     */
+    inline void removeCloseClientHandler(const on_close_client_t & handler)
+    {
+        m_conductor.removeCloseClientHandler(handler);
+    }
+
+    /**
      * Return the AgentInvoker for the client conductor.
      *
      * @return AgentInvoker for the conductor.
@@ -271,6 +357,16 @@ public:
     inline AgentInvoker<ClientConductor>& conductorAgentInvoker()
     {
         return m_conductorInvoker;
+    }
+
+    /**
+     * Return whether the AgentInvoker is used or not.
+     *
+     * @return true if AgentInvoker used or false if not.
+     */
+    inline bool usesAgentInvoker() const
+    {
+        return m_context.m_useConductorAgentInvoker;
     }
 
     /**
@@ -283,12 +379,44 @@ public:
         return m_conductor.countersReader();
     }
 
+    /**
+     * Get the client identity that has been allocated for communicating with the media driver.
+     *
+     * @return the client identity that has been allocated for communicating with the media driver.
+     */
+    inline std::int64_t clientId() const
+    {
+        return m_driverProxy.clientId();
+    }
+
+    /**
+     * Get the Aeron Context object used in construction of the Aeron instance.
+     *
+     * @return Context instance in use.
+     */
+    inline Context& context()
+    {
+        return m_context;
+    }
+
+    inline const Context& context() const
+    {
+        return m_context;
+    }
+
+    /**
+     * Return the static version and build string for the binary library.
+     *
+     * @return static version and build string for the binary library.
+     */
+    static std::string version();
+
 private:
     std::random_device m_randomDevice;
     std::default_random_engine m_randomEngine;
     std::uniform_int_distribution<std::int32_t> m_sessionIdDistribution;
 
-    Context& m_context;
+    Context m_context;
 
     MemoryMappedFile::ptr_t m_cncBuffer;
 

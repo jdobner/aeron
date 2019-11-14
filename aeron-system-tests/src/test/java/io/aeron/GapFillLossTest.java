@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -54,6 +54,8 @@ public class GapFillLossTest
         final MediaDriver.Context ctx = new MediaDriver.Context()
             .errorHandler(Throwable::printStackTrace)
             .threadingMode(ThreadingMode.SHARED)
+            .dirDeleteOnStart(true)
+            .dirDeleteOnShutdown(true)
             .publicationTermBufferLength(LogBufferDescriptor.TERM_MIN_LENGTH);
 
         final LossReport lossReport = mock(LossReport.class);
@@ -88,8 +90,8 @@ public class GapFillLossTest
 
                 while ((position = publication.offer(srcBuffer)) < 0L)
                 {
-                    SystemTest.checkInterruptedStatus();
                     Thread.yield();
+                    SystemTest.checkInterruptedStatus();
                 }
             }
 
@@ -98,10 +100,6 @@ public class GapFillLossTest
 
             assertThat(subscriber.messageCount, lessThan(NUM_MESSAGES));
             verify(lossReport).createEntry(anyLong(), anyLong(), anyInt(), eq(STREAM_ID), anyString(), anyString());
-        }
-        finally
-        {
-            ctx.deleteAeronDirectory();
         }
     }
 
@@ -119,8 +117,8 @@ public class GapFillLossTest
         {
             while (!subscription.isConnected())
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final Image image = subscription.imageAtIndex(0);
@@ -136,6 +134,7 @@ public class GapFillLossTest
                         return;
                     }
                 }
+
                 Thread.yield();
             }
         }

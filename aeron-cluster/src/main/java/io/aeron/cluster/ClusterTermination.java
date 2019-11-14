@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,28 +18,28 @@ package io.aeron.cluster;
 class ClusterTermination
 {
     private final MemberStatusPublisher memberStatusPublisher;
-    private long deadlineMs;
+    private long deadlineNs;
     private boolean hasServiceTerminated = false;
 
-    ClusterTermination(final MemberStatusPublisher memberStatusPublisher, final long deadlineMs)
+    ClusterTermination(final MemberStatusPublisher memberStatusPublisher, final long deadlineNs)
     {
-        this.deadlineMs = deadlineMs;
+        this.deadlineNs = deadlineNs;
         this.memberStatusPublisher = memberStatusPublisher;
     }
 
-    void deadlineMs(final long deadlineMs)
+    void deadlineNs(final long deadlineNs)
     {
-        this.deadlineMs = deadlineMs;
+        this.deadlineNs = deadlineNs;
     }
 
-    boolean canTerminate(final ClusterMember[] members, final long terminationPosition, final long nowMs)
+    boolean canTerminate(final ClusterMember[] members, final long terminationPosition, final long nowNs)
     {
-        if (!hasServiceTerminated)
+        if (hasServiceTerminated)
         {
-            return false;
+            return haveFollowersTerminated(members, terminationPosition) || nowNs >= deadlineNs;
         }
 
-        return haveFollowersTerminated(members, terminationPosition) || nowMs >= deadlineMs;
+        return false;
     }
 
     void hasServiceTerminated(final boolean hasServiceTerminated)

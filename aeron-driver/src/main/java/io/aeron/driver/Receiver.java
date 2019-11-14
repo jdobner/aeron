@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -154,11 +154,27 @@ public class Receiver implements Agent
                     0, channelEndpoint.explicitControlAddress(), 0, 0);
             }
         }
+        else
+        {
+            channelEndpoint.indicateActive();
+        }
     }
 
     public void onCloseReceiveChannelEndpoint(final ReceiveChannelEndpoint channelEndpoint)
     {
-        channelEndpoint.closeMultiRcvDestination();
+        final ArrayList<PendingSetupMessageFromSource> pendingSetupMessages = this.pendingSetupMessages;
+        for (int lastIndex = pendingSetupMessages.size() - 1, i = lastIndex; i >= 0; i--)
+        {
+            final PendingSetupMessageFromSource pending = pendingSetupMessages.get(i);
+
+            if (pending.channelEndpoint() == channelEndpoint)
+            {
+                ArrayListUtil.fastUnorderedRemove(pendingSetupMessages, i, lastIndex--);
+                pending.removeFromDataPacketDispatcher();
+            }
+        }
+
+        channelEndpoint.closeMultiRcvDestination(dataTransportPoller);
         channelEndpoint.close();
     }
 
@@ -170,7 +186,7 @@ public class Receiver implements Agent
     public void onAddDestination(
         final ReceiveChannelEndpoint channelEndpoint, final ReceiveDestinationUdpTransport transport)
     {
-        transport.openChannel();
+        transport.openChannel(conductorProxy, channelEndpoint.statusIndicatorCounter());
 
         final int transportIndex = channelEndpoint.addDestination(transport);
         final SelectionKey key = dataTransportPoller.registerForRead(channelEndpoint, transport, transportIndex);

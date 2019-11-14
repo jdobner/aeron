@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,20 +16,19 @@
 package io.aeron.driver.media;
 
 import org.junit.Test;
-import org.agrona.LangUtil;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
 import java.net.*;
 import java.util.*;
 
 import static java.lang.Short.parseShort;
 import static java.net.InetAddress.getByName;
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.sameInstance;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.sameInstance;
 import static org.junit.Assert.*;
 import static io.aeron.driver.media.NetworkUtil.filterBySubnet;
 import static io.aeron.driver.media.NetworkUtil.isMatchWithPrefix;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class NetworkUtilTest
 {
@@ -213,46 +212,19 @@ public class NetworkUtilTest
 
     private static NetworkInterface newNetworkInterface(final String name)
     {
-        NetworkInterface networkInterface = null;
-        try
-        {
-            final Constructor<NetworkInterface> ctor = NetworkInterface.class.getDeclaredConstructor();
-            ctor.setAccessible(true);
-            final Field nameField = NetworkInterface.class.getDeclaredField("name");
-            nameField.setAccessible(true);
+        final NetworkInterface networkInterface = mock(NetworkInterface.class);
 
-            networkInterface = ctor.newInstance();
-            nameField.set(networkInterface, name);
-
-        }
-        catch (final Exception ex)
-        {
-            LangUtil.rethrowUnchecked(ex);
-        }
+        when(networkInterface.getName()).thenReturn(name);
 
         return networkInterface;
     }
 
     private static InterfaceAddress newInterfaceAddress(final InetAddress inetAddress, final short maskLength)
     {
-        InterfaceAddress interfaceAddress = null;
-        try
-        {
-            final Constructor<InterfaceAddress> ctor = InterfaceAddress.class.getDeclaredConstructor();
-            ctor.setAccessible(true);
-            final Field addressField = InterfaceAddress.class.getDeclaredField("address");
-            addressField.setAccessible(true);
-            final Field maskLengthField = InterfaceAddress.class.getDeclaredField("maskLength");
-            maskLengthField.setAccessible(true);
+        final InterfaceAddress interfaceAddress = mock(InterfaceAddress.class);
 
-            interfaceAddress = ctor.newInstance();
-            addressField.set(interfaceAddress, inetAddress);
-            maskLengthField.set(interfaceAddress, maskLength);
-        }
-        catch (final Exception ex)
-        {
-            LangUtil.rethrowUnchecked(ex);
-        }
+        when(interfaceAddress.getAddress()).thenReturn(inetAddress);
+        when(interfaceAddress.getNetworkPrefixLength()).thenReturn(maskLength);
 
         return interfaceAddress;
     }

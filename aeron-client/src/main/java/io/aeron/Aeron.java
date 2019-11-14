@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,6 +16,8 @@
 package io.aeron;
 
 import io.aeron.exceptions.AeronException;
+import io.aeron.exceptions.ConcurrentConcludeException;
+import io.aeron.exceptions.ConfigurationException;
 import io.aeron.exceptions.DriverTimeoutException;
 import io.aeron.logbuffer.FragmentHandler;
 import org.agrona.DirectBuffer;
@@ -68,7 +70,7 @@ public class Aeron implements AutoCloseable
      */
     private static final AtomicIntegerFieldUpdater<Aeron> IS_CLOSED_UPDATER = newUpdater(Aeron.class, "isClosed");
 
-    @SuppressWarnings("unused") private volatile int isClosed;
+    private volatile int isClosed;
     private final long clientId;
     private final ClientConductor conductor;
     private final RingBuffer commandBuffer;
@@ -83,7 +85,7 @@ public class Aeron implements AutoCloseable
         this.ctx = ctx;
         clientId = ctx.clientId();
         commandBuffer = ctx.toDriverBuffer();
-        conductor = new ClientConductor(ctx);
+        conductor = new ClientConductor(ctx, this);
 
         if (ctx.useConductorAgentInvoker())
         {
@@ -132,10 +134,14 @@ public class Aeron implements AutoCloseable
             }
             else
             {
-                AgentRunner.startOnThread(aeron.conductorRunner, ctx.threadFactory);
+                AgentRunner.startOnThread(aeron.conductorRunner, ctx.threadFactory());
             }
 
             return aeron;
+        }
+        catch (final ConcurrentConcludeException ex)
+        {
+            throw ex;
         }
         catch (final Exception ex)
         {
@@ -196,6 +202,19 @@ public class Aeron implements AutoCloseable
     }
 
     /**
+     * Is the command still active for a given correlation id.
+     *
+     * @param correlationId to check if it is still active.
+     * @return true in the command is still in active processing or false if completed successfully or errored.
+     * @see Publication#asyncAddDestination(String)
+     * @see Subscription#asyncAddDestination(String)
+     */
+    public boolean isCommandActive(final long correlationId)
+    {
+        return conductor.isCommandActive(correlationId);
+    }
+
+    /**
      * Clean up and release all Aeron client resources and shutdown conductor thread if not using
      * {@link Context#useConductorAgentInvoker(boolean)}.
      * <p>
@@ -214,9 +233,6 @@ public class Aeron implements AutoCloseable
             {
                 conductorInvoker.close();
             }
-
-            conductor.clientClose();
-            ctx.close();
         }
     }
 
@@ -363,6 +379,77 @@ public class Aeron implements AutoCloseable
     }
 
     /**
+     * Add a handler to the list be called when {@link Counter}s become available.
+     *
+     * @param handler to be called when {@link Counter}s become available.
+     */
+    public void addAvailableCounterHandler(final AvailableCounterHandler handler)
+    {
+        conductor.addAvailableCounterHandler(handler);
+    }
+
+    /**
+     * Remove a previously added handler to the list be called when {@link Counter}s become available.
+     *
+     * @param handler to be removed.
+     * @return true if found and removed otherwise false.
+     */
+    public boolean removeAvailableCounterHandler(final AvailableCounterHandler handler)
+    {
+        return conductor.removeAvailableCounterHandler(handler);
+    }
+
+    /**
+     * Add a handler to the list be called when {@link Counter}s become unavailable.
+     *
+     * @param handler to be called when {@link Counter}s become unavailable.
+     */
+    public void addUnavailableCounterHandler(final UnavailableCounterHandler handler)
+    {
+        conductor.addUnavailableCounterHandler(handler);
+    }
+
+    /**
+     * Remove a previously added handler to the list be called when {@link Counter}s become unavailable.
+     *
+     * @param handler to be removed.
+     * @return true if found and removed otherwise false.
+     */
+    public boolean removeUnavailableCounterHandler(final UnavailableCounterHandler handler)
+    {
+        return conductor.removeUnavailableCounterHandler(handler);
+    }
+
+    /**
+     * Add a handler to the list be called when the Aeron client is closed.
+     *
+     * @param handler to be called when the Aeron client is closed.
+     */
+    public void addCloseHandler(final Runnable handler)
+    {
+        conductor.addCloseHandler(handler);
+    }
+
+    /**
+     * Remove a previously added handler to the list be called when the Aeron client is closed.
+     *
+     * @param handler to be removed.
+     * @return true if found and removed otherwise false.
+     */
+    public boolean removeCloseHandler(final Runnable handler)
+    {
+        return conductor.removeCloserHandler(handler);
+    }
+
+    /**
+     * Called by the {@link ClientConductor} if the client should be terminated due to timeout.
+     */
+    void internalClose()
+    {
+        isClosed = 1;
+    }
+
+    /**
      * Configuration options for the {@link Aeron} client.
      */
     public static class Configuration
@@ -371,6 +458,11 @@ public class Aeron implements AutoCloseable
          * Duration in milliseconds for which the client conductor will sleep between duty cycles.
          */
         static final long IDLE_SLEEP_MS = 16;
+
+        /**
+         * Duration in milliseconds for which the client will sleep when awaiting a response from the driver.
+         */
+        static final long AWAITING_IDLE_SLEEP_MS = 1;
 
         /**
          * Duration in nanoseconds for which the client conductor will sleep between duty cycles.
@@ -391,12 +483,36 @@ public class Aeron implements AutoCloseable
         /**
          * Default duration a resource should linger before deletion.
          */
-        public static final long RESOURCE_LINGER_DURATION_DEFAULT = TimeUnit.SECONDS.toNanos(3);
+        public static final long RESOURCE_LINGER_DURATION_DEFAULT_NS = TimeUnit.SECONDS.toNanos(3);
+
+        /**
+         * Duration to linger on close so that publishers subscribers have time to notice closed resources.
+         * This value can be set to a few seconds if the application is likely to experience CPU starvation or
+         * long GC pauses.
+         */
+        public static final String CLOSE_LINGER_DURATION_PROP_NAME = "aeron.client.close.linger.duration";
+
+        /**
+         * Default duration to linger on close so that publishers subscribers have time to notice closed resources.
+         */
+        public static final long CLOSE_LINGER_DURATION_DEFAULT_NS = 0;
+
+        /**
+         * Should memory-mapped files be pre-touched so that they are already faulted into a process.
+         * <p>
+         * Pre-touching files can result in it taking it it taking longer for resources to become available in
+         * return for avoiding later pauses due to page faults.
+         */
+        public static final String PRE_TOUCH_MAPPED_MEMORY_PROP_NAME = "aeron.pre.touch.mapped.memory";
+
+        /**
+         * Default for if a memory-mapped filed should be pre-touched to fault it into a process.
+         */
+        public static final boolean PRE_TOUCH_MAPPED_MEMORY_DEFAULT = false;
 
         /**
          * The Default handler for Aeron runtime exceptions.
-         * When a {@link DriverTimeoutException} is encountered, this handler will
-         * exit the program.
+         * When a {@link DriverTimeoutException} is encountered, this handler will exit the program.
          * <p>
          * The error handler can be overridden by supplying an {@link Context} with a custom handler.
          *
@@ -409,7 +525,7 @@ public class Aeron implements AutoCloseable
                 if (throwable instanceof DriverTimeoutException)
                 {
                     System.err.printf(
-                        "%n***%n*** timeout from the MediaDriver - is it currently running? Exiting%n***%n");
+                        "%n***%n*** timeout for the Media Driver - is it currently running? exiting%n***%n");
                     System.exit(-1);
                 }
             };
@@ -423,29 +539,63 @@ public class Aeron implements AutoCloseable
          */
         public static long resourceLingerDurationNs()
         {
-            return getDurationInNanos(RESOURCE_LINGER_DURATION_PROP_NAME, RESOURCE_LINGER_DURATION_DEFAULT);
+            return getDurationInNanos(RESOURCE_LINGER_DURATION_PROP_NAME, RESOURCE_LINGER_DURATION_DEFAULT_NS);
+        }
+
+        /**
+         * Duration to wait while lingering a entity such as an {@link Image} before deleting underlying resources
+         * such as memory mapped files.
+         *
+         * @return duration in nanoseconds to wait before deleting a expired resource.
+         * @see #RESOURCE_LINGER_DURATION_PROP_NAME
+         */
+        public static long closeLingerDurationNs()
+        {
+            return getDurationInNanos(CLOSE_LINGER_DURATION_PROP_NAME, CLOSE_LINGER_DURATION_DEFAULT_NS);
+        }
+
+        /**
+         * Should memory-mapped files be pre-touched so that they are already faulted into a process.
+         *
+         * @return true if memory mappings should be pre-touched, otherwise false.
+         * @see #PRE_TOUCH_MAPPED_MEMORY_PROP_NAME
+         */
+        public static boolean preTouchMappedMemory()
+        {
+            final String value = System.getProperty(PRE_TOUCH_MAPPED_MEMORY_PROP_NAME);
+            if (null != value)
+            {
+                return Boolean.parseBoolean(value);
+            }
+
+            return PRE_TOUCH_MAPPED_MEMORY_DEFAULT;
         }
     }
 
     /**
-     * This class provides configuration for the {@link Aeron} class via the {@link Aeron#connect(Aeron.Context)}
-     * method and its overloads. It gives applications some control over the interactions with the Aeron Media Driver.
-     * It can also set up error handling as well as application callbacks for image information from the
-     * Media Driver.
+     * Provides a means to override configuration for an {@link Aeron} client via the
+     * {@link Aeron#connect(Aeron.Context)} method and its overloads. It gives applications some control over
+     * the interactions with the Aeron Media Driver. It can also set up error handling as well as application
+     * callbacks for image information from the Media Driver.
      * <p>
      * A number of the properties are for testing and should not be set by end users.
      * <p>
      * <b>Note:</b> Do not reuse instances of the context across different {@link Aeron} clients.
+     * <p>
+     * The context will be owned by {@link ClientConductor} after a successful
+     * {@link Aeron#connect(Context)} and closed via {@link Aeron#close()}.
      */
     public static class Context extends CommonContext
     {
         private long clientId;
         private boolean useConductorAgentInvoker = false;
+        private boolean preTouchMappedMemory = Configuration.preTouchMappedMemory();
         private AgentInvoker driverAgentInvoker;
         private Lock clientLock;
         private EpochClock epochClock;
         private NanoClock nanoClock;
         private IdleStrategy idleStrategy;
+        private IdleStrategy awaitingIdleStrategy;
         private CopyBroadcastReceiver toClientBuffer;
         private RingBuffer toDriverBuffer;
         private DriverProxy driverProxy;
@@ -457,9 +607,11 @@ public class Aeron implements AutoCloseable
         private UnavailableImageHandler unavailableImageHandler;
         private AvailableCounterHandler availableCounterHandler;
         private UnavailableCounterHandler unavailableCounterHandler;
-        private long keepAliveInterval = Configuration.KEEPALIVE_INTERVAL_NS;
-        private long interServiceTimeout = 0;
+        private Runnable closeHandler;
+        private long keepAliveIntervalNs = Configuration.KEEPALIVE_INTERVAL_NS;
+        private long interServiceTimeoutNs = 0;
         private long resourceLingerDurationNs = Configuration.resourceLingerDurationNs();
+        private long closeLingerDurationNs = Configuration.closeLingerDurationNs();
 
         private ThreadFactory threadFactory = Thread::new;
 
@@ -504,9 +656,21 @@ public class Aeron implements AutoCloseable
                 idleStrategy = new SleepingMillisIdleStrategy(Configuration.IDLE_SLEEP_MS);
             }
 
+            if (null == awaitingIdleStrategy)
+            {
+                awaitingIdleStrategy = new SleepingMillisIdleStrategy(Configuration.AWAITING_IDLE_SLEEP_MS);
+            }
+
             if (cncFile() != null)
             {
                 connectToDriver();
+            }
+
+            interServiceTimeoutNs = CncFileDescriptor.clientLivenessTimeoutNs(cncMetaDataBuffer);
+            if (interServiceTimeoutNs <= keepAliveIntervalNs)
+            {
+                throw new ConfigurationException("interServiceTimeoutNs=" + interServiceTimeoutNs +
+                    " <= keepAliveIntervalNs=" + keepAliveIntervalNs);
             }
 
             if (null == toDriverBuffer)
@@ -531,8 +695,6 @@ public class Aeron implements AutoCloseable
             {
                 countersValuesBuffer(CncFileDescriptor.createCountersValuesBuffer(cncByteBuffer, cncMetaDataBuffer));
             }
-
-            interServiceTimeout = CncFileDescriptor.clientLivenessTimeout(cncMetaDataBuffer);
 
             if (null == logBuffersFactory)
             {
@@ -585,6 +747,30 @@ public class Aeron implements AutoCloseable
         public boolean useConductorAgentInvoker()
         {
             return useConductorAgentInvoker;
+        }
+
+        /**
+         * Should mapped-memory be pre-touched to avoid soft page faults.
+         *
+         * @param preTouchMappedMemory true if mapped-memory should be pre-touched otherwise false.
+         * @return this for a fluent API.
+         * @see Configuration#PRE_TOUCH_MAPPED_MEMORY_PROP_NAME
+         */
+        public Context preTouchMappedMemory(final boolean preTouchMappedMemory)
+        {
+            this.preTouchMappedMemory = preTouchMappedMemory;
+            return this;
+        }
+
+        /**
+         * Should mapped-memory be pre-touched to avoid soft page faults.
+         *
+         * @return true if mapped-memory should be pre-touched otherwise false.
+         * @see Configuration#PRE_TOUCH_MAPPED_MEMORY_PROP_NAME
+         */
+        public boolean preTouchMappedMemory()
+        {
+            return preTouchMappedMemory;
         }
 
         /**
@@ -649,9 +835,9 @@ public class Aeron implements AutoCloseable
         }
 
         /**
-         * Get the {@link java.time.Clock} used by the client for the epoch time in milliseconds.
+         * Get the {@link EpochClock} used by the client for the epoch time in milliseconds.
          *
-         * @return the {@link java.time.Clock} used by the client for the epoch time in milliseconds.
+         * @return the {@link EpochClock} used by the client for the epoch time in milliseconds.
          */
         public EpochClock epochClock()
         {
@@ -681,9 +867,9 @@ public class Aeron implements AutoCloseable
         }
 
         /**
-         * Provides an IdleStrategy for the thread responsible for communicating with the Aeron Media Driver.
+         * Provides an {@link IdleStrategy} for the thread responsible for the client duty cycle.
          *
-         * @param idleStrategy Thread idle strategy for communication with the Media Driver.
+         * @param idleStrategy Thread idle strategy for the client duty cycle.
          * @return this for a fluent API.
          */
         public Context idleStrategy(final IdleStrategy idleStrategy)
@@ -693,13 +879,38 @@ public class Aeron implements AutoCloseable
         }
 
         /**
-         * Get the {@link IdleStrategy} employed by the client conductor thread.
+         * Get the {@link IdleStrategy} employed by the client for the client duty cycle.
          *
-         * @return the {@link IdleStrategy} employed by the client conductor thread.
+         * @return the {@link IdleStrategy} employed by the client for the client duty cycle.
          */
         public IdleStrategy idleStrategy()
         {
             return idleStrategy;
+        }
+
+        /**
+         * Provides an {@link IdleStrategy} to be used when awaiting a response from the Media Driver.
+         *
+         * @param idleStrategy Thread idle strategy for awaiting a response from the Media Driver.
+         * @return this for a fluent API.
+         */
+        public Context awaitingIdleStrategy(final IdleStrategy idleStrategy)
+        {
+            this.awaitingIdleStrategy = idleStrategy;
+            return this;
+        }
+
+        /**
+         * The {@link IdleStrategy} to be used when awaiting a response from the Media Driver.
+         * <p>
+         * This can be change to a {@link BusySpinIdleStrategy} or {@link YieldingIdleStrategy} for lower response time,
+         * especially for adding counters or releasing resources, at the expense of CPU usage.
+         *
+         * @return the {@link IdleStrategy} to be used when awaiting a response from the Media Driver.
+         */
+        public IdleStrategy awaitingIdleStrategy()
+        {
+            return awaitingIdleStrategy;
         }
 
         /**
@@ -865,7 +1076,8 @@ public class Aeron implements AutoCloseable
         }
 
         /**
-         * Setup a callback for when a counter is available.
+         * Setup a callback for when a counter is available. This will be added to the list first before
+         * additional handler are added with {@link Aeron#addAvailableCounterHandler(AvailableCounterHandler)}.
          *
          * @param handler to be called for handling available counter notifications.
          * @return this for a fluent API.
@@ -887,7 +1099,8 @@ public class Aeron implements AutoCloseable
         }
 
         /**
-         * Setup a callback for when a counter is unavailable.
+         * Setup a callback for when a counter is unavailable. This will be added to the list first before
+         * additional handler are added with {@link Aeron#addUnavailableCounterHandler(UnavailableCounterHandler)}.
          *
          * @param handler to be called for handling unavailable counter notifications.
          * @return this for a fluent API.
@@ -909,14 +1122,40 @@ public class Aeron implements AutoCloseable
         }
 
         /**
+         * Set a {@link Runnable} that is called when the client is closed by timeout or normal means.
+         *
+         * It is not safe to call any API functions from any threads after this hook is called. In addition any
+         * in flight calls may still cause faults. It is thus recommended to treat this as a hard error and
+         * terminate the process in this hook as soon as possible.
+         *
+         * @param handler that is called when the client is closed.
+         * @return this for a fluent API.
+         */
+        public Context closeHandler(final Runnable handler)
+        {
+            this.closeHandler = handler;
+            return this;
+        }
+
+        /**
+         * Get the {@link Runnable} that is called when the client is closed by timeout or normal means.
+         *
+         * @return the {@link Runnable} that is called when the client is closed.
+         */
+        public Runnable closeHandler()
+        {
+            return closeHandler;
+        }
+
+        /**
          * Set the interval in nanoseconds for which the client will perform keep-alive operations.
          *
          * @param value the interval in nanoseconds for which the client will perform keep-alive operations.
          * @return this for a fluent API.
          */
-        public Context keepAliveInterval(final long value)
+        public Context keepAliveIntervalNs(final long value)
         {
-            keepAliveInterval = value;
+            keepAliveIntervalNs = value;
             return this;
         }
 
@@ -925,9 +1164,9 @@ public class Aeron implements AutoCloseable
          *
          * @return the interval in nanoseconds for which the client will perform keep-alive operations.
          */
-        public long keepAliveInterval()
+        public long keepAliveIntervalNs()
         {
-            return keepAliveInterval;
+            return keepAliveIntervalNs;
         }
 
         /**
@@ -951,26 +1190,26 @@ public class Aeron implements AutoCloseable
          * @param interServiceTimeout the timeout (ns) between service calls the to {@link ClientConductor} duty cycle.
          * @return this for a fluent API.
          */
-        Context interServiceTimeout(final long interServiceTimeout)
+        Context interServiceTimeoutNs(final long interServiceTimeout)
         {
-            this.interServiceTimeout = interServiceTimeout;
+            this.interServiceTimeoutNs = interServiceTimeout;
             return this;
         }
 
         /**
          * Return the timeout between service calls to the duty cycle for the client.
          * <p>
-         * When exceeded, {@link #errorHandler} will be called and the active {@link Publication}s and {@link Image}s
+         * When exceeded, {@link #errorHandler()} will be called and the active {@link Publication}s and {@link Image}s
          * closed.
          * <p>
          * This value is controlled by the driver and included in the CnC file. It can be configured by adjusting
-         * the aeron.client.liveness.timeout property on the media driver.
+         * the {@code aeron.client.liveness.timeout} property on the media driver.
          *
-         * @return the timeout in nanoseconds between service calls.
+         * @return the timeout in nanoseconds between service calls as an allowed maximum.
          */
-        public long interServiceTimeout()
+        public long interServiceTimeoutNs()
         {
-            return interServiceTimeout;
+            return interServiceTimeoutNs;
         }
 
         /**
@@ -1000,7 +1239,39 @@ public class Aeron implements AutoCloseable
         }
 
         /**
-         * @see CommonContext#aeronDirectoryName(String)
+         * Duration to linger on closing to allow publishers and subscribers time to notice closed resources.
+         * <p>
+         * This value can be increased from the default to a few seconds to better cope with long GC pauses
+         * or resource starved environments. Issues could manifest as seg faults using files after they have
+         * been unmapped from publishers or subscribers not noticing the close in a timely fashion.
+         *
+         * @param closeLingerDurationNs to wait before deleting resources when closing.
+         * @return this for a fluent API.
+         * @see Configuration#CLOSE_LINGER_DURATION_PROP_NAME
+         */
+        public Context closeLingerDurationNs(final long closeLingerDurationNs)
+        {
+            this.closeLingerDurationNs = closeLingerDurationNs;
+            return this;
+        }
+
+        /**
+         * Duration to linger on closing to allow publishers and subscribers time to notice closed resources.
+         * <p>
+         * This value can be increased from the default to a few seconds to better cope with long GC pauses
+         * or resource starved environments. Issues could manifest as seg faults using files after they have
+         * been unmapped from publishers or subscribers not noticing the close in a timely fashion.
+         *
+         * @return duration in nanoseconds to wait before deleting resources when closing.
+         * @see Configuration#CLOSE_LINGER_DURATION_PROP_NAME
+         */
+        public long closeLingerDurationNs()
+        {
+            return closeLingerDurationNs;
+        }
+
+        /**
+         * {@inheritDoc}
          */
         public Context aeronDirectoryName(final String dirName)
         {
@@ -1035,8 +1306,9 @@ public class Aeron implements AutoCloseable
          */
         public void close()
         {
+            final MappedByteBuffer cncByteBuffer = this.cncByteBuffer;
+            this.cncByteBuffer = null;
             IoUtil.unmap(cncByteBuffer);
-            cncByteBuffer = null;
             super.close();
         }
 
@@ -1069,13 +1341,10 @@ public class Aeron implements AutoCloseable
                         throw new DriverTimeoutException("CnC file is created but not initialised");
                     }
 
-                    sleep(1);
+                    sleep(Configuration.AWAITING_IDLE_SLEEP_MS);
                 }
 
-                if (CncFileDescriptor.CNC_VERSION != cncVersion)
-                {
-                    throw new AeronException("CnC file version not supported: version=" + cncVersion);
-                }
+                CncFileDescriptor.checkVersion(cncVersion);
 
                 final ManyToOneRingBuffer ringBuffer = new ManyToOneRingBuffer(
                     CncFileDescriptor.createToDriverBuffer(cncByteBuffer, cncMetaDataBuffer));
@@ -1087,7 +1356,7 @@ public class Aeron implements AutoCloseable
                         throw new DriverTimeoutException("no driver heartbeat detected");
                     }
 
-                    sleep(1);
+                    sleep(Configuration.AWAITING_IDLE_SLEEP_MS);
                 }
 
                 final long timeMs = epochClock.time();

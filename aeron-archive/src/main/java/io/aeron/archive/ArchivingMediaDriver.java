@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -45,17 +45,22 @@ public class ArchivingMediaDriver implements AutoCloseable
     {
         loadPropertiesFiles(args);
 
-        try (ArchivingMediaDriver ignore = launch())
+        final ShutdownSignalBarrier barrier = new ShutdownSignalBarrier();
+        final MediaDriver.Context ctx = new MediaDriver.Context();
+
+        ctx.terminationHook(barrier::signal);
+
+        try (ArchivingMediaDriver ignore = launch(ctx, new Archive.Context()))
         {
-            new ShutdownSignalBarrier().await();
+            barrier.await();
 
             System.out.println("Shutdown Archive...");
         }
     }
 
     /**
-     * Launch a new {@link ArchivingMediaDriver} with defaults for {@link MediaDriver.Context} and
-     * {@link Archive.Context}.
+     * Launch a new {@link ArchivingMediaDriver} with defaults for {@link io.aeron.driver.MediaDriver.Context} and
+     * {@link io.aeron.archive.Archive.Context}.
      *
      * @return a new {@link ArchivingMediaDriver} with default contexts.
      */
@@ -73,14 +78,24 @@ public class ArchivingMediaDriver implements AutoCloseable
      */
     public static ArchivingMediaDriver launch(final MediaDriver.Context driverCtx, final Archive.Context archiveCtx)
     {
-        final MediaDriver driver = MediaDriver.launch(driverCtx);
+        MediaDriver driver = null;
+        Archive archive = null;
+        try
+        {
+            driver = MediaDriver.launch(driverCtx);
 
-        final Archive archive = Archive.launch(archiveCtx
-            .mediaDriverAgentInvoker(driver.sharedAgentInvoker())
-            .errorHandler(driverCtx.errorHandler())
-            .errorCounter(driverCtx.systemCounters().get(SystemCounterDescriptor.ERRORS)));
+            archive = Archive.launch(archiveCtx
+                .mediaDriverAgentInvoker(driver.sharedAgentInvoker())
+                .errorHandler(driverCtx.errorHandler())
+                .errorCounter(driverCtx.systemCounters().get(SystemCounterDescriptor.ERRORS)));
 
-        return new ArchivingMediaDriver(driver, archive);
+            return new ArchivingMediaDriver(driver, archive);
+        }
+        catch (final Exception ex)
+        {
+            CloseHelper.quietCloseAll(archive, driver);
+            throw ex;
+        }
     }
 
     /**

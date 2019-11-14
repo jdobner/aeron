@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +17,8 @@ package io.aeron.samples;
 
 import io.aeron.CncFileDescriptor;
 import io.aeron.CommonContext;
+import io.aeron.DriverProxy;
+import io.aeron.exceptions.AeronException;
 import org.agrona.DirectBuffer;
 import org.agrona.IoUtil;
 import org.agrona.concurrent.ringbuffer.ManyToOneRingBuffer;
@@ -28,8 +30,8 @@ import java.util.Date;
 import static io.aeron.CncFileDescriptor.*;
 
 /**
- * Tool for printing out Aeron Media Driver Information. A command-and-control (CnC) file is maintained by media driver
- * in shared memory. This application reads the CnC file and prints its status. Layout of the Cnc file is
+ * Tool for printing out Aeron Media Driver Information. A command-and-control (CnC) file is maintained by a
+ * media driver in shared memory. This application reads the CnC file and prints its status. Layout of the Cnc file is
  * described in {@link CncFileDescriptor}.
  */
 public class DriverTool
@@ -37,6 +39,7 @@ public class DriverTool
     public static void main(final String[] args)
     {
         boolean printPidOnly = false;
+        boolean terminateDriver = false;
 
         if (0 != args.length)
         {
@@ -46,6 +49,10 @@ public class DriverTool
             {
                 printPidOnly = true;
             }
+            else if (args[0].equals("terminate"))
+            {
+                terminateDriver = true;
+            }
         }
 
         final File cncFile = CommonContext.newDefaultCncFile();
@@ -53,11 +60,7 @@ public class DriverTool
         final DirectBuffer cncMetaData = createMetaDataBuffer(cncByteBuffer);
         final int cncVersion = cncMetaData.getInt(cncVersionOffset(0));
 
-        if (CncFileDescriptor.CNC_VERSION != cncVersion)
-        {
-            throw new IllegalStateException(
-                "Aeron CnC version does not match: version=" + cncVersion + " required=" + CNC_VERSION);
-        }
+        checkVersion(cncVersion);
 
         final ManyToOneRingBuffer toDriver = new ManyToOneRingBuffer(createToDriverBuffer(cncByteBuffer, cncMetaData));
 
@@ -65,11 +68,20 @@ public class DriverTool
         {
             System.out.println(pid(cncMetaData));
         }
+        else if (terminateDriver)
+        {
+            final DriverProxy driverProxy = new DriverProxy(toDriver, toDriver.nextCorrelationId());
+
+            if (!driverProxy.terminateDriver(null, 0, 0))
+            {
+                throw new AeronException("could not send termination request.");
+            }
+        }
         else
         {
             System.out.println("Command `n Control file: " + cncFile);
             System.out.format("Version: %d, PID: %d%n", cncVersion, pid(cncMetaData));
-            printDateActivityAndStartTimestamps(startTimestamp(cncMetaData), toDriver.consumerHeartbeatTime());
+            printDateActivityAndStartTimestamps(startTimestampMs(cncMetaData), toDriver.consumerHeartbeatTime());
         }
     }
 
@@ -88,8 +100,10 @@ public class DriverTool
         {
             if ("-?".equals(arg) || "-h".equals(arg) || "-help".equals(arg))
             {
-                System.out.println("\"Usage: [-Daeron.dir=<directory containing CnC file>] DriverTool <pid>");
+                System.out.println(
+                    "\"Usage: [-Daeron.dir=<directory containing CnC file>] DriverTool <pid> <terminate>");
                 System.out.println("  pid: prints PID of driver only.");
+                System.out.println("  terminate: request the driver to terminate.");
                 System.exit(0);
             }
         }

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,7 +27,7 @@ import org.agrona.concurrent.status.CountersManager;
 import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 
-import static io.aeron.driver.CongestionControlUtil.packOutcome;
+import static io.aeron.driver.CongestionControl.packOutcome;
 
 /**
  * CUBIC congestion control manipulation of the receiver window length.
@@ -77,20 +77,22 @@ public class CubicCongestionControl implements CongestionControl
     private final AtomicCounter rttIndicator;
     private final AtomicCounter windowIndicator;
 
-    CubicCongestionControl(
+    public CubicCongestionControl(
         final long registrationId,
         final UdpChannel udpChannel,
         final int streamId,
         final int sessionId,
         final int termLength,
         final int senderMtuLength,
+        final InetSocketAddress controlAddress,
+        final InetSocketAddress sourceAddress,
         final NanoClock clock,
         final MediaDriver.Context context,
         final CountersManager countersManager)
     {
         mtu = senderMtuLength;
         minWindow = senderMtuLength;
-        final int maxWindow = Math.min(termLength / 2, context.initialWindowLength());
+        final int maxWindow = Math.min(termLength >> 1, context.initialWindowLength());
 
         maxCwnd = maxWindow / mtu;
         cwnd = 1;
@@ -179,7 +181,7 @@ public class CubicCongestionControl implements CongestionControl
             // if using TCP mode, then check to see if we are in the TCP region
             if (TCP_MODE && cwnd < w_max)
             {
-                // W_tcp(t) = w_max*(1-B) + 3*B/(2-B)* t/RTT
+                // W_tcp(t) = w_max * (1 - B) + 3 * B / (2 - B) * t / RTT
 
                 final double rttInSeconds = (double)rttInNs / (double)SECOND_IN_NS;
                 final double wTcp =

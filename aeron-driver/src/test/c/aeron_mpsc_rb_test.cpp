@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,6 +27,7 @@ extern "C"
 #include <concurrent/aeron_mpsc_rb.h>
 }
 
+#undef max
 #define CAPACITY (1024)
 #define BUFFER_SZ (CAPACITY + AERON_RB_TRAILER_LENGTH)
 #define ODD_BUFFER_SZ ((CAPACITY - 1) + AERON_RB_TRAILER_LENGTH)

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,6 +24,7 @@ import io.aeron.archive.codecs.SourceLocation;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.driver.status.SystemCounterDescriptor;
+import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.FrameDescriptor;
 import io.aeron.logbuffer.Header;
 import org.agrona.*;
@@ -142,9 +143,10 @@ public class ArchiveTest
             new MediaDriver.Context()
                 .termBufferSparseFile(true)
                 .threadingMode(threadingMode)
-                .sharedIdleStrategy(new YieldingIdleStrategy())
+                .sharedIdleStrategy(YieldingIdleStrategy.INSTANCE)
                 .spiesSimulateConnection(true)
                 .errorHandler(Throwable::printStackTrace)
+                .dirDeleteOnShutdown(true)
                 .dirDeleteOnStart(true));
 
         archive = Archive.launch(
@@ -153,7 +155,7 @@ public class ArchiveTest
                 .fileSyncLevel(SYNC_LEVEL)
                 .mediaDriverAgentInvoker(driver.sharedAgentInvoker())
                 .deleteArchiveOnStart(true)
-                .archiveDir(new File(IoUtil.tmpDirName(), "archive-test"))
+                .archiveDir(new File(SystemUtil.tmpDirName(), "archive-test"))
                 .segmentFileLength(segmentFileLength)
                 .threadingMode(archiveThreadingMode)
                 .idleStrategySupplier(YieldingIdleStrategy::new)
@@ -183,7 +185,6 @@ public class ArchiveTest
         CloseHelper.close(driver);
 
         archive.context().deleteArchiveDirectory();
-        driver.context().deleteAeronDirectory();
     }
 
     @Test(timeout = 10_000)
@@ -338,8 +339,8 @@ public class ArchiveTest
         {
             if (recordingEventsAdapter.poll() == 0)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
         }
 
@@ -355,7 +356,6 @@ public class ArchiveTest
         final int messageCount)
     {
         verifyDescriptorListOngoingArchive(archiveProxy, termBufferLength);
-
         assertNull(trackerError);
 
         final long requestStopCorrelationId = correlationId++;
@@ -383,8 +383,8 @@ public class ArchiveTest
         {
             if (recordingEventsAdapter.poll() == 0)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
         }
 
@@ -435,6 +435,7 @@ public class ArchiveTest
     {
         final long requestRecordingsCorrelationId = correlationId++;
         archiveProxy.listRecording(recordingId, requestRecordingsCorrelationId, controlSessionId);
+        final MutableBoolean isDone = new MutableBoolean();
 
         final ControlResponseAdapter controlResponseAdapter = new ControlResponseAdapter(
             new FailControlResponseListener()
@@ -457,22 +458,26 @@ public class ArchiveTest
                     final String originalChannel,
                     final String sourceIdentity)
                 {
+                    assertThat(correlationId, is(requestRecordingsCorrelationId));
                     assertThat(recordingId, is(ArchiveTest.this.recordingId));
                     assertThat(termBufferLength, is(publicationTermBufferLength));
                     assertThat(streamId, is(PUBLISH_STREAM_ID));
-                    assertThat(correlationId, is(requestRecordingsCorrelationId));
                     assertThat(originalChannel, is(publishUri));
-                }
 
+                    isDone.set(true);
+                }
             },
             controlResponse,
             1
         );
 
-        while (controlResponseAdapter.poll() == 0)
+        while (!isDone.get())
         {
-            SystemTest.checkInterruptedStatus();
-            Thread.yield();
+            if (controlResponseAdapter.poll() == 0)
+            {
+                Thread.yield();
+                SystemTest.checkInterruptedStatus();
+            }
         }
     }
 
@@ -549,8 +554,8 @@ public class ArchiveTest
                     throw new IllegalStateException("Publication not connected: result=" + result);
                 }
 
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
         }
 
@@ -599,8 +604,8 @@ public class ArchiveTest
                 final int fragments = replay.poll(this::validateFragment, 10);
                 if (0 == fragments)
                 {
-                    SystemTest.checkInterruptedStatus();
                     Thread.yield();
+                    SystemTest.checkInterruptedStatus();
                 }
             }
 
@@ -618,17 +623,15 @@ public class ArchiveTest
 
         while (catalog.stopPosition(recordingId) != stopPosition)
         {
-            SystemTest.checkInterruptedStatus();
             Thread.yield();
+            SystemTest.checkInterruptedStatus();
         }
 
         try (RecordingReader recordingReader = new RecordingReader(
-            catalog,
             catalog.recordingSummary(recordingId, new RecordingSummary()),
             archiveDir,
             NULL_POSITION,
-            AeronArchive.NULL_LENGTH,
-            null))
+            AeronArchive.NULL_LENGTH))
         {
             while (!recordingReader.isDone())
             {
@@ -701,8 +704,8 @@ public class ArchiveTest
                     {
                         if (recordingEventsAdapter.poll() == 0)
                         {
-                            SystemTest.checkInterruptedStatus();
                             SystemTest.sleep(1);
+                            SystemTest.checkInterruptedStatus();
                         }
                     }
                 }
@@ -751,7 +754,7 @@ public class ArchiveTest
                         replayCorrelationId,
                         controlSessionId))
                     {
-                        throw new IllegalStateException("Failed to start replay");
+                        throw new IllegalStateException("failed to start replay");
                     }
 
                     TestUtil.awaitOk(controlResponse, replayCorrelationId);
@@ -766,13 +769,14 @@ public class ArchiveTest
                     this.messageCount = 0;
                     remaining = totalDataLength;
 
+                    final FragmentHandler fragmentHandler = this::validateFragment;
                     while (this.messageCount < messageCount)
                     {
-                        final int fragments = replay.poll(this::validateFragment, 10);
+                        final int fragments = replay.poll(fragmentHandler, 10);
                         if (0 == fragments)
                         {
-                            SystemTest.checkInterruptedStatus();
                             Thread.yield();
+                            SystemTest.checkInterruptedStatus();
                         }
                     }
                 }

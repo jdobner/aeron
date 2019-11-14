@@ -3,7 +3,7 @@ Aeron
 
 [![Gitter](https://img.shields.io/gitter/room/gitterHQ/gitter.svg)](https://gitter.im/real-logic/Aeron?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) To chat with other Aeron users and the contributors.
 
-[![Javadocs](http://www.javadoc.io/badge/io.aeron/aeron-all.svg)](http://www.javadoc.io/doc/io.aeron/aeron-all)
+[![Javadocs](https://www.javadoc.io/badge/io.aeron/aeron-all.svg)](https://www.javadoc.io/doc/io.aeron/aeron-all)
 [![Build Status](https://travis-ci.org/real-logic/aeron.svg?branch=master)](https://travis-ci.org/real-logic/aeron)
 [![GitHub](https://img.shields.io/github/license/real-logic/Aeron.svg)](https://github.com/real-logic/aeron/blob/master/LICENSE)
 [![Code Quality: Java](https://img.shields.io/lgtm/grade/java/g/real-logic/aeron.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/real-logic/aeron/context:java)
@@ -26,10 +26,10 @@ For details of usage, protocol specification, FAQ, etc. please check out the
 [Wiki](https://github.com/real-logic/aeron/wiki).
 
 For those who prefer to watch a video then try [Aeron Messaging](https://www.youtube.com/watch?v=tM4YskS94b0) from
-StrangeLoop 2014. Things have moved on quite a bit with performance and some features but the basic design still applies.
+StrangeLoop 2014. Things have advanced quite a bit with performance and features but the basic design still applies.
 
 For the latest version information and changes see the [Change Log](https://github.com/real-logic/aeron/wiki/Change-Log)
-with **downloads** at [Maven Central](http://search.maven.org/#search%7Cga%7C1%7Caeron).
+with Java **downloads** at [Maven Central](http://search.maven.org/#search%7Cga%7C1%7Caeron).
 
 ### How do I use Aeron?
 
@@ -39,11 +39,11 @@ with **downloads** at [Maven Central](http://search.maven.org/#search%7Cga%7C1%7
 1. [Monitoring and Debugging](https://github.com/real-logic/aeron/wiki/Monitoring-and-Debugging)
 1. [Configuration Options](https://github.com/real-logic/aeron/wiki/Configuration-Options)
 1. [Channel Specific Configuration](https://github.com/real-logic/aeron/wiki/Channel-Configuration)
-1. [Aeron Archive (Persistent Stream Storage)](https://github.com/real-logic/aeron/wiki/Aeron-Archive)
+1. [Aeron Archive (Durable/Persistent Stream Storage)](https://github.com/real-logic/aeron/wiki/Aeron-Archive)
 
 ### How does Aeron work?
 
-1. [Protocol Specification](https://github.com/real-logic/aeron/wiki/Protocol-Specification)
+1. [Transport Protocol Specification](https://github.com/real-logic/aeron/wiki/Transport-Protocol-Specification)
 1. [Design Overview](https://github.com/real-logic/aeron/wiki/Design-Overview)
 1. [Design Principles](https://github.com/real-logic/aeron/wiki/Design-Principles)
 1. [Flow Control Semantics](https://github.com/real-logic/aeron/wiki/Flow-and-Congestion-Control)
@@ -64,13 +64,10 @@ The project is built with [Gradle](http://gradle.org/) using this
 
 You require the following to build Aeron:
 
-* Latest stable [Oracle JDK 8](http://www.oracle.com/technetwork/java/), Java versions before 1.8.0_65 are very buggy
-   and can cause tests to fail.
+* [JDK 8](https://adoptopenjdk.net/index.html) or later, Java versions before 1.8.0_65 are very buggy and can cause tests to fail. Aeron is tested and supported on Java 8 & Java 11.
 
 You must first build and install [Agrona](https://github.com/real-logic/agrona) and
-[Simple Binary Encoding (SBE)](https://github.com/real-logic/simple-binary-encoding) into the local maven repository 
-**if** the current master for Aeron depends on changes to Agrona or SBE. However we will try to not have this as the
-normal case.
+[Simple Binary Encoding (SBE)](https://github.com/real-logic/simple-binary-encoding) into the local maven repository **if** the current master for Aeron depends on changes to Agrona or SBE. However we will try to not have this as the typical case.
 
 ```shell
     $ ./gradlew
@@ -88,7 +85,7 @@ Full clean and build of all modules
 
 You require the following to build the C++ API for Aeron:
 
-* 3.0.2 or higher of [CMake](http://www.cmake.org/)
+* 3.1.3 or higher of [CMake](http://www.cmake.org/)
 * C++11 supported compiler for the supported platform
 * C11 supported compiler for the supported platform
 * Requirements to build [HdrHistogram_c](https://github.com/HdrHistogram/HdrHistogram_c). HdrHistogram requires
@@ -99,7 +96,8 @@ You require the following to build the C++ API for Aeron:
 ```
 
 __Note__: Aeron is supported on Linux, Mac, and Windows. Windows builds require Visual Studio and are being developed
-with Visual Studio 2013 and 2015 with 64-bit builds only. Cygwin, MSys, etc. may work, but are not maintained at this time.
+with Visual Studio 2017 with 64-bit builds only. Cygwin, MSys, etc. may work, but are not maintained at this time.
+Windows builds require 7z to unzip the zlib source archive.
 
 For convenience, a script is provided that does a full clean, build, and test of all targets as a Release build.
 
@@ -122,7 +120,7 @@ If you are comfortable with using CMake, then a full clean, build, and test look
 By default, the C Media Driver is built as part of the C++ Build. However, it can be disabled via the CMake
 option `BUILD_AERON_DRIVER` being set to `OFF`.
 
-__Note__: C Media Driver is currently only supported on Mac and Linux.
+__Note__: C Media Driver is currently only supported on Mac and Linux (Windows version is experimental).
 
 For dependencies and other information, see the
 [README](https://github.com/real-logic/aeron/blob/master/aeron-driver/src/main/c/README.md).
@@ -220,7 +218,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,

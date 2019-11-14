@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -95,6 +95,11 @@ public class LogBufferDescriptor
     public static final int LOG_IS_CONNECTED_OFFSET;
 
     /**
+     * Offset within the log metadata where the count of active transports is stored.
+     */
+    public static final int LOG_ACTIVE_TRANSPORT_COUNT;
+
+    /**
      * Offset within the log metadata where the active term id is stored.
      */
     public static final int LOG_INITIAL_TERM_ID_OFFSET;
@@ -159,6 +164,8 @@ public class LogBufferDescriptor
      *  +---------------------------------------------------------------+
      *  |                        Is Connected                           |
      *  +---------------------------------------------------------------+
+     *  |                    Active Transport Count                     |
+     *  +---------------------------------------------------------------+
      *  |                      Cache Line Padding                      ...
      * ...                                                              |
      *  +---------------------------------------------------------------+
@@ -196,6 +203,7 @@ public class LogBufferDescriptor
         offset = (CACHE_LINE_LENGTH * 2);
         LOG_END_OF_STREAM_POSITION_OFFSET = offset;
         LOG_IS_CONNECTED_OFFSET = LOG_END_OF_STREAM_POSITION_OFFSET + SIZE_OF_LONG;
+        LOG_ACTIVE_TRANSPORT_COUNT = LOG_IS_CONNECTED_OFFSET + SIZE_OF_INT;
 
         offset += (CACHE_LINE_LENGTH * 2);
         LOG_CORRELATION_ID_OFFSET = offset;
@@ -394,6 +402,28 @@ public class LogBufferDescriptor
     public static void isConnected(final UnsafeBuffer metadataBuffer, final boolean isConnected)
     {
         metadataBuffer.putIntOrdered(LOG_IS_CONNECTED_OFFSET, isConnected ? 1 : 0);
+    }
+
+    /**
+     * Get the count of active transports for the Image.
+     *
+     * @param metadataBuffer containing the meta data.
+     * @return count of active transports.
+     */
+    public static int activeTransportCount(final UnsafeBuffer metadataBuffer)
+    {
+        return metadataBuffer.getIntVolatile(LOG_ACTIVE_TRANSPORT_COUNT);
+    }
+
+    /**
+     * Set the number of active transports for the Image.
+     *
+     * @param metadataBuffer containing the meta data.
+     * @param numberOfActiveTransports value to be set.
+     */
+    public static void activeTransportCount(final UnsafeBuffer metadataBuffer, final int numberOfActiveTransports)
+    {
+        metadataBuffer.putIntOrdered(LOG_ACTIVE_TRANSPORT_COUNT, numberOfActiveTransports);
     }
 
     /**
@@ -848,6 +878,6 @@ public class LogBufferDescriptor
                 return 30;
         }
 
-        throw new IllegalArgumentException("Invalid term buffer length: " + termBufferLength);
+        throw new IllegalArgumentException("invalid term buffer length: " + termBufferLength);
     }
 }

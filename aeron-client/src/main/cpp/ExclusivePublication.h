@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,7 +20,7 @@
 #include <iostream>
 #include <atomic>
 #include <concurrent/AtomicBuffer.h>
-#include <concurrent/logbuffer/ExclusiveBufferClaim.h>
+#include <concurrent/logbuffer/BufferClaim.h>
 #include <concurrent/logbuffer/ExclusiveTermAppender.h>
 #include <concurrent/status/UnsafeBufferPosition.h>
 #include "concurrent/status/StatusIndicatorReader.h"
@@ -57,7 +57,6 @@ public:
         ClientConductor& conductor,
         const std::string& channel,
         std::int64_t registrationId,
-        std::int64_t originalRegistrationId,
         std::int32_t streamId,
         std::int32_t sessionId,
         UnsafeBufferPosition& publicationLimit,
@@ -65,7 +64,7 @@ public:
         std::shared_ptr<LogBuffers> logBuffers);
     /// @endcond
 
-    virtual ~ExclusivePublication();
+    ~ExclusivePublication();
 
     /**
      * Media address for delivery to the channel.
@@ -109,13 +108,33 @@ public:
     }
 
     /**
+     * The term-id the publication has reached.
+     *
+     * @return the term-id the publication has reached.
+     */
+    inline std::int32_t termId() const
+    {
+        return m_termId;
+    }
+
+    /**
+     * The term-offset the publication has reached.
+     *
+     * @return the term-offset the publication has reached.
+     */
+    inline std::int32_t termOffset() const
+    {
+        return m_termOffset;
+    }
+
+    /**
      * Get the original registration used to register this Publication with the media driver by the first publisher.
      *
      * @return the original registrationId of the publication.
      */
     inline std::int64_t originalRegistrationId() const
     {
-        return m_originalRegistrationId;
+        return m_registrationId;
     }
 
     /**
@@ -129,14 +148,13 @@ public:
     }
 
     /**
-     * Is this Publication the original instance added to the driver? If not then it was added after another client
-     * has already added the publication.
+     * ExclusivePublication instances are always original.
      *
-     * @return true if this instance is the first added otherwise false.
+     * @return true.
      */
-    inline bool isOriginal() const
+    static constexpr bool isOriginal()
     {
-        return m_originalRegistrationId == m_registrationId;
+        return true;
     }
 
     /**
@@ -561,7 +579,6 @@ private:
 
     const std::string m_channel;
     std::int64_t m_registrationId;
-    std::int64_t m_originalRegistrationId;
     std::int64_t m_maxPossiblePosition;
     std::int32_t m_streamId;
     std::int32_t m_sessionId;
@@ -570,10 +587,10 @@ private:
     std::int32_t m_maxMessageLength;
     std::int32_t m_positionBitsToShift;
 
-    std::int64_t m_termBeginPosition;
-    std::int32_t m_activePartitionIndex;
-    std::int32_t m_termId;
     std::int32_t m_termOffset;
+    std::int32_t m_termId;
+    std::int32_t m_activePartitionIndex;
+    std::int64_t m_termBeginPosition;
 
     ReadablePosition<UnsafeBufferPosition> m_publicationLimit;
     std::int32_t m_channelStatusId;

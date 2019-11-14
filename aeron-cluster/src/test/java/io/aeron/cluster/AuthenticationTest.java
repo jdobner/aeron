@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static io.aeron.security.NullCredentialsSupplier.NULL_CREDENTIAL;
 import static org.agrona.BitUtil.SIZE_OF_INT;
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.spy;
@@ -69,7 +69,6 @@ public class AuthenticationTest
         {
             clusteredMediaDriver.consensusModule().context().deleteDirectory();
             clusteredMediaDriver.archive().context().deleteArchiveDirectory();
-            clusteredMediaDriver.mediaDriver().context().deleteAeronDirectory();
         }
     }
 
@@ -81,8 +80,7 @@ public class AuthenticationTest
         final MutableLong authenticatorSessionId = new MutableLong(-1L);
         final MutableReference<byte[]> encodedPrincipal = new MutableReference<>();
 
-        final CredentialsSupplier credentialsSupplier =
-            spy(new CredentialsSupplier()
+        final CredentialsSupplier credentialsSupplier = spy(new CredentialsSupplier()
             {
                 public byte[] encodedCredentials()
                 {
@@ -96,8 +94,7 @@ public class AuthenticationTest
                 }
             });
 
-        final Authenticator authenticator =
-            spy(new Authenticator()
+        final Authenticator authenticator = spy(new Authenticator()
             {
                 public void onConnectRequest(final long sessionId, final byte[] encodedCredentials, final long nowMs)
                 {
@@ -146,8 +143,7 @@ public class AuthenticationTest
         final MutableLong authenticatorSessionId = new MutableLong(-1L);
         final MutableReference<byte[]> encodedPrincipal = new MutableReference<>();
 
-        final CredentialsSupplier credentialsSupplier =
-            spy(new CredentialsSupplier()
+        final CredentialsSupplier credentialsSupplier = spy(new CredentialsSupplier()
             {
                 public byte[] encodedCredentials()
                 {
@@ -161,8 +157,7 @@ public class AuthenticationTest
                 }
             });
 
-        final Authenticator authenticator =
-            spy(new Authenticator()
+        final Authenticator authenticator = spy(new Authenticator()
             {
                 public void onConnectRequest(final long sessionId, final byte[] encodedCredentials, final long nowMs)
                 {
@@ -211,8 +206,7 @@ public class AuthenticationTest
         final MutableLong authenticatorSessionId = new MutableLong(-1L);
         final MutableReference<byte[]> encodedPrincipal = new MutableReference<>();
 
-        final CredentialsSupplier credentialsSupplier =
-            spy(new CredentialsSupplier()
+        final CredentialsSupplier credentialsSupplier = spy(new CredentialsSupplier()
             {
                 public byte[] encodedCredentials()
                 {
@@ -226,8 +220,7 @@ public class AuthenticationTest
                 }
             });
 
-        final Authenticator authenticator =
-            spy(new Authenticator()
+        final Authenticator authenticator = spy(new Authenticator()
             {
                 boolean challengeSuccessful = false;
 
@@ -284,8 +277,7 @@ public class AuthenticationTest
         final MutableLong authenticatorSessionId = new MutableLong(-1L);
         final MutableReference<byte[]> encodedPrincipal = new MutableReference<>();
 
-        final CredentialsSupplier credentialsSupplier =
-            spy(new CredentialsSupplier()
+        final CredentialsSupplier credentialsSupplier = spy(new CredentialsSupplier()
             {
                 public byte[] encodedCredentials()
                 {
@@ -299,8 +291,7 @@ public class AuthenticationTest
                 }
             });
 
-        final Authenticator authenticator =
-            spy(new Authenticator()
+        final Authenticator authenticator = spy(new Authenticator()
             {
                 public void onConnectRequest(final long sessionId, final byte[] encodedCredentials, final long nowMs)
                 {
@@ -349,8 +340,7 @@ public class AuthenticationTest
         final MutableLong authenticatorSessionId = new MutableLong(-1L);
         final MutableReference<byte[]> encodedPrincipal = new MutableReference<>();
 
-        final CredentialsSupplier credentialsSupplier =
-            spy(new CredentialsSupplier()
+        final CredentialsSupplier credentialsSupplier = spy(new CredentialsSupplier()
             {
                 public byte[] encodedCredentials()
                 {
@@ -364,8 +354,7 @@ public class AuthenticationTest
                 }
             });
 
-        final Authenticator authenticator =
-            spy(new Authenticator()
+        final Authenticator authenticator = spy(new Authenticator()
             {
                 boolean challengeRespondedTo = false;
 
@@ -428,12 +417,11 @@ public class AuthenticationTest
     private void launchService(
         final MutableLong sessionId, final MutableReference<byte[]> encodedPrincipal, final AtomicLong msgCounter)
     {
-        final ClusteredService service =
-            new StubClusteredService()
+        final ClusteredService service = new StubClusteredService()
             {
                 private int counterValue = 0;
 
-                public void onSessionOpen(final ClientSession session, final long timestampMs)
+                public void onSessionOpen(final ClientSession session, final long timestamp)
                 {
                     sessionId.value = session.id();
                     encodedPrincipal.set(session.encodedPrincipal());
@@ -441,7 +429,7 @@ public class AuthenticationTest
 
                 public void onSessionMessage(
                     final ClientSession session,
-                    final long timestampMs,
+                    final long timestamp,
                     final DirectBuffer buffer,
                     final int offset,
                     final int length,
@@ -459,7 +447,7 @@ public class AuthenticationTest
             new ClusteredServiceContainer.Context()
                 .clusteredService(service)
                 .terminationHook(TestUtil.TERMINATION_HOOK)
-                .errorHandler(Throwable::printStackTrace));
+                .errorHandler(TestUtil.errorHandler(0)));
     }
 
     private AeronCluster connectToCluster(final CredentialsSupplier credentialsSupplier)
@@ -483,11 +471,13 @@ public class AuthenticationTest
             new MediaDriver.Context()
                 .warnIfDirectoryExists(true)
                 .threadingMode(ThreadingMode.SHARED)
-                .errorHandler(Throwable::printStackTrace)
-                .dirDeleteOnStart(true),
+                .errorHandler(TestUtil.errorHandler(0))
+                .dirDeleteOnStart(true)
+                .dirDeleteOnShutdown(true),
             new Archive.Context()
                 .maxCatalogEntries(MAX_CATALOG_ENTRIES)
                 .threadingMode(ArchiveThreadingMode.SHARED)
+                .recordingEventsEnabled(false)
                 .deleteArchiveOnStart(true),
             new ConsensusModule.Context()
                 .errorHandler(Throwable::printStackTrace)

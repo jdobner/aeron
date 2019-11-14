@@ -5,7 +5,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+# https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,6 +32,8 @@ add_executable(Pong Pong.cpp ${HEADERS})
 add_executable(Ping Ping.cpp ${HEADERS})
 add_executable(Throughput Throughput.cpp ${HEADERS})
 add_executable(ErrorStat ErrorStat.cpp ${HEADERS})
+add_executable(LossStat LossStat.cpp ${HEADERS})
+add_executable(DriverTool DriverTool.cpp ${HEADERS})
 add_executable(ExclusiveThroughput ExclusiveThroughput.cpp ${HEADERS})
 add_executable(PingPong PingPong.cpp ${HEADERS})
 
@@ -68,6 +70,12 @@ target_link_libraries(Throughput
 target_link_libraries(ErrorStat
     aeron_client)
 
+target_link_libraries(LossStat
+    aeron_client)
+
+target_link_libraries(DriverTool
+    aeron_client)
+
 target_link_libraries(ExclusiveThroughput
     aeron_client)
 
@@ -79,6 +87,6 @@ add_dependencies(PingPong hdr_histogram)
 
 if (AERON_INSTALL_TARGETS)
     install(
-        TARGETS AeronStat BasicPublisher TimeTests BasicSubscriber StreamingPublisher RateSubscriber Ping Pong Throughput ErrorStat ExclusiveThroughput PingPong
+        TARGETS AeronStat BasicPublisher TimeTests BasicSubscriber StreamingPublisher RateSubscriber Ping Pong Throughput ErrorStat LossStat DriverTool ExclusiveThroughput PingPong
         DESTINATION bin)
 endif()

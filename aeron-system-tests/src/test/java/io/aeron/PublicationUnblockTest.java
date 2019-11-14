@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -50,18 +50,20 @@ public class PublicationUnblockTest
     private final MediaDriver driver = MediaDriver.launch(new MediaDriver.Context()
         .threadingMode(ThreadingMode.SHARED)
         .errorHandler(Throwable::printStackTrace)
+        .dirDeleteOnShutdown(true)
         .publicationTermBufferLength(LogBufferDescriptor.TERM_MIN_LENGTH)
-        .timerIntervalNs(TimeUnit.MILLISECONDS.toNanos(100))
-        .publicationUnblockTimeoutNs(TimeUnit.MILLISECONDS.toNanos(100)));
+        .clientLivenessTimeoutNs(TimeUnit.MILLISECONDS.toNanos(400))
+        .timerIntervalNs(TimeUnit.MILLISECONDS.toNanos(10))
+        .publicationUnblockTimeoutNs(TimeUnit.MILLISECONDS.toNanos(500)));
 
-    private final Aeron aeron = Aeron.connect();
+    private final Aeron aeron = Aeron.connect(new Aeron.Context()
+        .keepAliveIntervalNs(TimeUnit.MILLISECONDS.toNanos(100)));
 
     @After
     public void after()
     {
         CloseHelper.close(aeron);
         CloseHelper.close(driver);
-        driver.context().deleteAeronDirectory();
     }
 
     @Theory
@@ -72,41 +74,39 @@ public class PublicationUnblockTest
         final FragmentHandler fragmentHandler = (buffer, offset, length, header) -> fragmentCount.value++;
 
         try (Subscription subscription = aeron.addSubscription(channel, STREAM_ID);
-            Publication publicationA = aeron.addPublication(channel, STREAM_ID);
-            Publication publicationB = aeron.addPublication(channel, STREAM_ID))
+            Publication publicationOne = aeron.addPublication(channel, STREAM_ID);
+            Publication publicationTwo = aeron.addPublication(channel, STREAM_ID))
         {
-            final BufferClaim bufferClaim = new BufferClaim();
             final UnsafeBuffer srcBuffer = new UnsafeBuffer(new byte[driver.context().mtuLength()]);
             final int length = 128;
             srcBuffer.setMemory(0, length, (byte)66);
+            final BufferClaim bufferClaim = new BufferClaim();
 
-            while (publicationA.tryClaim(length, bufferClaim) < 0L)
+            while (publicationOne.tryClaim(length, bufferClaim) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             bufferClaim.buffer().setMemory(bufferClaim.offset(), length, (byte)65);
             bufferClaim.commit();
 
-            while (publicationB.offer(srcBuffer, 0, length) < 0L)
+            while (publicationTwo.offer(srcBuffer, 0, length) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
-            while (publicationA.tryClaim(length, bufferClaim) < 0L)
+            while (publicationOne.tryClaim(length, bufferClaim) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
-            // no commit of publicationA
-
-            while (publicationB.offer(srcBuffer, 0, length) < 0L)
+            while (publicationTwo.offer(srcBuffer, 0, length) < 0L)
             {
-                SystemTest.checkInterruptedStatus();
                 Thread.yield();
+                SystemTest.checkInterruptedStatus();
             }
 
             final int expectedFragments = 3;
@@ -114,10 +114,10 @@ public class PublicationUnblockTest
             do
             {
                 final int fragments = subscription.poll(fragmentHandler, FRAGMENT_COUNT_LIMIT);
-                if (numFragments == 0)
+                if (fragments == 0)
                 {
-                    SystemTest.checkInterruptedStatus();
                     Thread.yield();
+                    SystemTest.checkInterruptedStatus();
                 }
 
                 numFragments += fragments;

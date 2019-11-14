@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,7 @@
 #define AERON_SEND_CHANNEL_ENDPOINT_H
 
 #include "collections/aeron_int64_to_ptr_hash_map.h"
+#include "util/aeron_netutil.h"
 #include "aeron_network_publication.h"
 #include "aeron_driver_context.h"
 #include "aeron_udp_channel.h"
@@ -47,12 +48,13 @@ typedef struct aeron_send_channel_endpoint_stct
 
     /* uint8_t conductor_fields_pad[(2 * AERON_CACHE_LINE_LENGTH) - sizeof(struct conductor_fields_stct)]; */
 
+    bool has_sender_released;
     aeron_udp_channel_transport_t transport;
-    aeron_int64_to_ptr_hash_map_t publication_dispatch_map;
     aeron_counter_t channel_status;
     aeron_udp_destination_tracker_t *destination_tracker;
     aeron_driver_sender_proxy_t *sender_proxy;
-    bool has_sender_released;
+    aeron_int64_to_ptr_hash_map_t publication_dispatch_map;
+    aeron_udp_channel_transport_bindings_t *transport_bindings;
 }
 aeron_send_channel_endpoint_t;
 
@@ -111,6 +113,12 @@ inline int aeron_send_channel_endpoint_remove_destination(
     aeron_send_channel_endpoint_t *endpoint, struct sockaddr_storage *addr)
 {
     return aeron_udp_destination_tracker_remove_destination(endpoint->destination_tracker, addr);
+}
+
+inline int aeron_send_channel_endpoint_bind_addr_and_port(
+    aeron_send_channel_endpoint_t *endpoint, char *buffer, size_t length)
+{
+    return endpoint->transport_bindings->bind_addr_and_port_func(&endpoint->transport, buffer, length);
 }
 
 #endif //AERON_SEND_CHANNEL_ENDPOINT_H

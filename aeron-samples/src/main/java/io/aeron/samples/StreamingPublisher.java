@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,7 +29,7 @@ import io.aeron.driver.MediaDriver;
 import org.agrona.BitUtil;
 import org.agrona.BufferUtil;
 import org.agrona.CloseHelper;
-import org.agrona.concurrent.BusySpinIdleStrategy;
+import org.agrona.concurrent.IdleStrategy;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.console.ContinueBarrier;
 
@@ -47,7 +47,6 @@ public class StreamingPublisher
     private static final String CHANNEL = SampleConfiguration.CHANNEL;
     private static final UnsafeBuffer OFFER_BUFFER = new UnsafeBuffer(
         BufferUtil.allocateDirectAligned(MESSAGE_LENGTH, BitUtil.CACHE_LINE_LENGTH));
-    private static final BusySpinIdleStrategy OFFER_IDLE_STRATEGY = new BusySpinIdleStrategy();
     private static final IntSupplier LENGTH_GENERATOR = composeLengthGenerator(RANDOM_MESSAGE_LENGTH, MESSAGE_LENGTH);
 
     private static volatile boolean printingActive = true;
@@ -79,13 +78,14 @@ public class StreamingPublisher
             Publication publication = aeron.addPublication(CHANNEL, STREAM_ID))
         {
             final ContinueBarrier barrier = new ContinueBarrier("Execute again?");
+            final IdleStrategy idleStrategy = SampleConfiguration.newIdleStrategy();
 
             do
             {
                 printingActive = true;
 
                 System.out.format(
-                    "%nStreaming %,d messages of%s size %d bytes to %s on stream Id %d%n",
+                    "%nStreaming %,d messages of%s size %d bytes to %s on stream id %d%n",
                     NUMBER_OF_MESSAGES,
                     (RANDOM_MESSAGE_LENGTH) ? " random" : "",
                     MESSAGE_LENGTH,
@@ -99,14 +99,14 @@ public class StreamingPublisher
                     final int length = LENGTH_GENERATOR.getAsInt();
 
                     OFFER_BUFFER.putLong(0, i);
-                    OFFER_IDLE_STRATEGY.reset();
+                    idleStrategy.reset();
                     while (publication.offer(OFFER_BUFFER, 0, length) < 0L)
                     {
                         // The offer failed, which is usually due to the publication
                         // being temporarily blocked.  Retry the offer after a short
                         // spin/yield/sleep, depending on the chosen IdleStrategy.
                         backPressureCount++;
-                        OFFER_IDLE_STRATEGY.idle();
+                        idleStrategy.idle();
                     }
 
                     reporter.onMessage(1, length);

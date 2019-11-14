@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -189,6 +189,8 @@ public:
     };
 #pragma pack(pop)
 
+    static const std::int32_t NULL_COUNTER_ID = -1;
+
     static const std::int32_t RECORD_UNUSED = 0;
     static const std::int32_t RECORD_ALLOCATED = 1;
     static const std::int32_t RECORD_RECLAIMED = -1;
@@ -197,6 +199,7 @@ public:
 
     static const util::index_t COUNTER_LENGTH = sizeof(CounterValueDefn);
     static const util::index_t METADATA_LENGTH = sizeof(CounterMetaDataDefn);
+    static const util::index_t TYPE_ID_OFFSET = offsetof(CounterMetaDataDefn, typeId);
     static const util::index_t FREE_TO_REUSE_DEADLINE_OFFSET = offsetof(CounterMetaDataDefn, freeToReuseDeadline);
     static const util::index_t KEY_OFFSET = offsetof(CounterMetaDataDefn, key);
     static const util::index_t LABEL_LENGTH_OFFSET = offsetof(CounterMetaDataDefn, labelLength);

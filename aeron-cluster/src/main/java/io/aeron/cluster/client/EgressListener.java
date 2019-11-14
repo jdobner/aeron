@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,7 +29,7 @@ public interface EgressListener
      * Message event returned from the clustered service.
      *
      * @param clusterSessionId to which the message belongs.
-     * @param timestampMs      at which the correlated ingress was sequenced in the cluster.
+     * @param timestamp        at which the correlated ingress was sequenced in the cluster.
      * @param buffer           containing the message.
      * @param offset           at which the message begins.
      * @param length           of the message in bytes.
@@ -37,7 +37,7 @@ public interface EgressListener
      */
     void onMessage(
         long clusterSessionId,
-        long timestampMs,
+        long timestamp,
         DirectBuffer buffer,
         int offset,
         int length,
