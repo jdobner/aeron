@@ -17,6 +17,8 @@
 
 VERSION=`cat ../../version.txt`
 
+${JAVA_HOME}/bin/java --version
+
 ${JAVA_HOME}/bin/java \
     -cp ../../aeron-all/build/libs/aeron-all-${VERSION}.jar \
     -XX:+UnlockExperimentalVMOptions \
