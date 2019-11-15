@@ -62,4 +62,4 @@ hs_err_pid*
 
 #jd
 bin
-aeron-archive
+aeron-cluster/aeron-archive/
