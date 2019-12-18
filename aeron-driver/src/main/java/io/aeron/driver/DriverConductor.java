@@ -224,7 +224,6 @@ public class DriverConductor implements Agent
                 termBufferLength,
                 isOldestSubscriptionSparse(subscriberPositions),
                 senderMtuLength,
-                udpChannel,
                 registrationId);
 
             final CongestionControl congestionControl = ctx.congestionControlSupplier().newInstance(
@@ -241,11 +240,11 @@ public class DriverConductor implements Agent
                 countersManager);
 
             final InferableBoolean groupSubscription = subscriberPositions.get(0).subscription().group();
-            final boolean treatAsMulticast =
-                groupSubscription == INFER ? udpChannel.isMulticast() : groupSubscription == FORCE_TRUE;
+            final boolean treatAsMulticast = groupSubscription == INFER ?
+                udpChannel.isMulticast() : groupSubscription == FORCE_TRUE;
 
-            final FeedbackDelayGenerator feedbackDelayGenerator =
-                treatAsMulticast ? ctx.multicastFeedbackDelayGenerator() : ctx.unicastFeedbackDelayGenerator();
+            final FeedbackDelayGenerator feedbackDelayGenerator = treatAsMulticast ?
+                ctx.multicastFeedbackDelayGenerator() : ctx.unicastFeedbackDelayGenerator();
 
             final PublicationImage image = new PublicationImage(
                 registrationId,
@@ -295,9 +294,9 @@ public class DriverConductor implements Agent
         }
     }
 
-    void onChannelEndpointError(final long statusIndicatorId, final Exception error)
+    void onChannelEndpointError(final long statusIndicatorId, final Exception ex)
     {
-        final String errorMessage = error.getClass().getSimpleName() + " : " + error.getMessage();
+        final String errorMessage = ex.getClass().getSimpleName() + " : " + ex.getMessage();
         clientProxy.onError(statusIndicatorId, CHANNEL_ENDPOINT_ERROR, errorMessage);
     }
 
@@ -612,7 +611,6 @@ public class DriverConductor implements Agent
         }
 
         publicationLink.close();
-
         clientProxy.operationSucceeded(correlationId);
     }
 
@@ -679,7 +677,6 @@ public class DriverConductor implements Agent
         final SubscriptionParams params = SubscriptionParams.getSubscriptionParams(udpChannel.channelUri(), ctx);
 
         checkForClashingSubscription(params, udpChannel, streamId);
-
         final ReceiveChannelEndpoint channelEndpoint = getOrCreateReceiveChannelEndpoint(udpChannel);
 
         if (params.hasSessionId)
@@ -873,7 +870,6 @@ public class DriverConductor implements Agent
 
         clientProxy.operationSucceeded(correlationId);
         clientProxy.onUnavailableCounter(registrationId, counterLink.counterId());
-
         counterLink.close();
     }
 
@@ -937,8 +933,7 @@ public class DriverConductor implements Agent
 
         receiveChannelEndpoint.validateAllowsDestinationControl();
 
-        final UdpChannel destinationUdpChannel = UdpChannel.parse(destinationChannel);
-        receiverProxy.removeDestination(receiveChannelEndpoint, destinationUdpChannel);
+        receiverProxy.removeDestination(receiveChannelEndpoint, UdpChannel.parse(destinationChannel));
         clientProxy.operationSucceeded(correlationId);
     }
 
@@ -1081,7 +1076,7 @@ public class DriverConductor implements Agent
             params,
             channelEndpoint,
             cachedNanoClock,
-            newNetworkPublicationLog(sessionId, streamId, initialTermId, udpChannel, registrationId, params),
+            newNetworkPublicationLog(sessionId, streamId, initialTermId, registrationId, params),
             Configuration.producerWindowLength(params.termLength, ctx.publicationTermWindowLength()),
             publisherPosition,
             publisherLimit,
@@ -1115,13 +1110,10 @@ public class DriverConductor implements Agent
         final int sessionId,
         final int streamId,
         final int initialTermId,
-        final UdpChannel udpChannel,
         final long registrationId,
         final PublicationParams params)
     {
-        final RawLog rawLog = logFactory.newPublication(
-            udpChannel.canonicalForm(), sessionId, streamId, registrationId, params.termLength, params.isSparse);
-
+        final RawLog rawLog = logFactory.newPublication(registrationId, params.termLength, params.isSparse);
         initPublicationMetadata(sessionId, streamId, initialTermId, registrationId, params, rawLog);
 
         return rawLog;
@@ -1134,9 +1126,7 @@ public class DriverConductor implements Agent
         final long registrationId,
         final PublicationParams params)
     {
-        final RawLog rawLog = logFactory.newPublication(
-            IPC_MEDIA, sessionId, streamId, registrationId, params.termLength, params.isSparse);
-
+        final RawLog rawLog = logFactory.newPublication(registrationId, params.termLength, params.isSparse);
         initPublicationMetadata(sessionId, streamId, initialTermId, registrationId, params, rawLog);
 
         return rawLog;
@@ -1202,12 +1192,9 @@ public class DriverConductor implements Agent
         final int termBufferLength,
         final boolean isSparse,
         final int senderMtuLength,
-        final UdpChannel udpChannel,
         final long correlationId)
     {
-        final RawLog rawLog = logFactory.newImage(
-            udpChannel.canonicalForm(), sessionId, streamId, correlationId, termBufferLength, isSparse);
-
+        final RawLog rawLog = logFactory.newImage(correlationId, termBufferLength, isSparse);
         final UnsafeBuffer logMetaData = rawLog.metaData();
 
         defaultDataHeader.sessionId(sessionId).streamId(streamId).termId(initialTermId);
@@ -1247,7 +1234,6 @@ public class DriverConductor implements Agent
             for (final SendChannelEndpoint endpoint : sendChannelEndpointByChannelMap.values())
             {
                 final UdpChannel endpointUdpChannel = endpoint.udpChannel();
-
                 if (endpointUdpChannel.matchesTag(udpChannel))
                 {
                     return endpoint;
@@ -1275,6 +1261,7 @@ public class DriverConductor implements Agent
             final boolean isReliable = params.isReliable;
             final boolean isRejoin = params.isRejoin;
             final ArrayList<SubscriptionLink> existingLinks = subscriptionLinks;
+
             for (int i = 0, size = existingLinks.size(); i < size; i++)
             {
                 final SubscriptionLink subscription = existingLinks.get(i);
@@ -1411,7 +1398,6 @@ public class DriverConductor implements Agent
         }
 
         ReceiveChannelEndpoint endpoint = receiveChannelEndpointByChannelMap.get(udpChannel.canonicalForm());
-
         if (null != endpoint && endpoint.hasTag() && udpChannel.hasTag() && endpoint.tag() != udpChannel.tag())
         {
             endpoint = null;
@@ -1685,54 +1671,5 @@ public class DriverConductor implements Agent
         }
 
         return isSparse;
-    }
-
-    static final class SessionKey
-    {
-        int sessionId;
-        final int streamId;
-        final String channel;
-
-        SessionKey(final int streamId, final String channel)
-        {
-            this.streamId = streamId;
-            this.channel = channel;
-        }
-
-        SessionKey(final int sessionId, final int streamId, final String channel)
-        {
-            this.sessionId = sessionId;
-            this.streamId = streamId;
-            this.channel = channel;
-        }
-
-        public boolean equals(final Object o)
-        {
-            if (this == o)
-            {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass())
-            {
-                return false;
-            }
-
-            final SessionKey that = (SessionKey)o;
-            return sessionId == that.sessionId && streamId == that.streamId && channel.equals(that.channel);
-        }
-
-        public int hashCode()
-        {
-            return 31 * sessionId * streamId * channel.hashCode();
-        }
-
-        public String toString()
-        {
-            return "SessionKey{" +
-                "sessionId=" + sessionId +
-                ", streamId=" + streamId +
-                ", channel=" + channel +
-                '}';
-        }
     }
 }

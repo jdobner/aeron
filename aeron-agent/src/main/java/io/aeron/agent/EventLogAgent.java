@@ -51,54 +51,7 @@ public class EventLogAgent
 
     private static AgentRunner readerAgentRunner;
     private static Instrumentation instrumentation;
-    private static volatile ClassFileTransformer logTransformer;
-
-    static final AgentBuilder.Listener LISTENER = new AgentBuilder.Listener()
-    {
-        public void onDiscovery(
-            final String typeName,
-            final ClassLoader classLoader,
-            final JavaModule module,
-            final boolean loaded)
-        {
-        }
-
-        public void onTransformation(
-            final TypeDescription typeDescription,
-            final ClassLoader classLoader,
-            final JavaModule module,
-            final boolean loaded,
-            final DynamicType dynamicType)
-        {
-        }
-
-        public void onIgnored(
-            final TypeDescription typeDescription,
-            final ClassLoader classLoader,
-            final JavaModule module,
-            final boolean loaded)
-        {
-        }
-
-        public void onError(
-            final String typeName,
-            final ClassLoader classLoader,
-            final JavaModule module,
-            final boolean loaded,
-            final Throwable throwable)
-        {
-            System.err.println("ERROR " + typeName);
-            throwable.printStackTrace(System.out);
-        }
-
-        public void onComplete(
-            final String typeName,
-            final ClassLoader classLoader,
-            final JavaModule module,
-            final boolean loaded)
-        {
-        }
-    };
+    private static ClassFileTransformer logTransformer;
 
     public static void premain(final String agentArgs, final Instrumentation instrumentation)
     {
@@ -110,7 +63,7 @@ public class EventLogAgent
         agent(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION, instrumentation);
     }
 
-    public static void removeTransformer()
+    public static synchronized void removeTransformer()
     {
         if (logTransformer != null)
         {
@@ -123,7 +76,7 @@ public class EventLogAgent
                 .or(nameEndsWith("SenderProxy"))
                 .or(nameEndsWith("ReceiverProxy"))
                 .or(nameEndsWith("UdpChannelTransport"))
-                .or(nameEndsWith("ControlRequestAdapter"))
+                .or(nameEndsWith("ControlSessionDemuxer"))
                 .or(nameEndsWith("Election"))
                 .or(nameEndsWith("ConsensusModuleAgent"));
 
@@ -140,9 +93,14 @@ public class EventLogAgent
         }
     }
 
-    private static void agent(
+    private static synchronized void agent(
         final AgentBuilder.RedefinitionStrategy redefinitionStrategy, final Instrumentation instrumentation)
     {
+        if (null != logTransformer)
+        {
+            throw new IllegalStateException("agent already instrumenting");
+        }
+
         if (0 == DriverEventLogger.ENABLED_EVENT_CODES &&
             0 == ArchiveEventLogger.ENABLED_EVENT_CODES &&
             0 == ClusterEventLogger.ENABLED_EVENT_CODES)
@@ -158,7 +116,7 @@ public class EventLogAgent
         AgentBuilder agentBuilder = new AgentBuilder.Default(new ByteBuddy()
             .with(TypeValidation.DISABLED))
             .disableClassFormatChanges()
-            .with(LISTENER)
+            .with(new AgentBuilderListener())
             .with(redefinitionStrategy);
 
         if (DriverEventLogger.ENABLED_EVENT_CODES != 0)
@@ -226,7 +184,7 @@ public class EventLogAgent
     private static AgentBuilder addArchiveInstrumentation(final AgentBuilder agentBuilder)
     {
         return agentBuilder
-            .type(nameEndsWith("ControlRequestAdapter"))
+            .type(nameEndsWith("ControlSessionDemuxer"))
             .transform(((builder, typeDescription, classLoader, module) -> builder
                 .visit(to(ControlRequestInterceptor.ControlRequest.class)
                     .on(named("onFragment")))));
@@ -262,5 +220,52 @@ public class EventLogAgent
         {
             throw new RuntimeException(ex);
         }
+    }
+}
+
+class AgentBuilderListener implements AgentBuilder.Listener
+{
+    public void onDiscovery(
+        final String typeName,
+        final ClassLoader classLoader,
+        final JavaModule module,
+        final boolean loaded)
+    {
+    }
+
+    public void onTransformation(
+        final TypeDescription typeDescription,
+        final ClassLoader classLoader,
+        final JavaModule module,
+        final boolean loaded,
+        final DynamicType dynamicType)
+    {
+    }
+
+    public void onIgnored(
+        final TypeDescription typeDescription,
+        final ClassLoader classLoader,
+        final JavaModule module,
+        final boolean loaded)
+    {
+    }
+
+    public void onError(
+        final String typeName,
+        final ClassLoader classLoader,
+        final JavaModule module,
+        final boolean loaded,
+        final Throwable throwable)
+    {
+        System.err.println("ERROR " + typeName);
+        throwable.printStackTrace(System.err);
+    }
+
+    public void onComplete(
+        final String typeName,
+        final ClassLoader classLoader,
+        final JavaModule module,
+        final boolean loaded)
+    {
     }
 }

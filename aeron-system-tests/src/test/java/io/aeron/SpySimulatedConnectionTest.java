@@ -20,10 +20,13 @@ import io.aeron.driver.ThreadingMode;
 import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.LogBufferDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
+import io.aeron.test.MediaDriverTestWatcher;
+import io.aeron.test.TestMediaDriver;
 import org.agrona.CloseHelper;
 import org.agrona.collections.MutableInteger;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.After;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.theories.DataPoint;
 import org.junit.experimental.theories.Theories;
@@ -57,7 +60,7 @@ public class SpySimulatedConnectionTest
     private final MediaDriver.Context driverContext = new MediaDriver.Context();
 
     private Aeron client;
-    private MediaDriver driver;
+    private TestMediaDriver driver;
     private Publication publication;
     private Subscription subscription;
     private Subscription spy;
@@ -70,6 +73,9 @@ public class SpySimulatedConnectionTest
     private final MutableInteger fragmentCountSub = new MutableInteger();
     private final FragmentHandler fragmentHandlerSub = (buffer1, offset, length, header) -> fragmentCountSub.value++;
 
+    @Rule
+    public MediaDriverTestWatcher watcher = new MediaDriverTestWatcher();
+
     private void launch()
     {
         driverContext.publicationTermBufferLength(TERM_BUFFER_LENGTH)
@@ -77,7 +83,7 @@ public class SpySimulatedConnectionTest
             .dirDeleteOnShutdown(true)
             .threadingMode(ThreadingMode.SHARED);
 
-        driver = MediaDriver.launch(driverContext);
+        driver = TestMediaDriver.launch(driverContext, watcher);
         client = Aeron.connect();
     }
 

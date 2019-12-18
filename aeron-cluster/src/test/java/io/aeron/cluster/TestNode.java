@@ -32,6 +32,7 @@ import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.agrona.collections.MutableInteger;
 import org.agrona.collections.MutableLong;
+import org.agrona.concurrent.AgentTerminationException;
 import org.agrona.concurrent.status.CountersReader;
 
 import java.io.File;
@@ -39,7 +40,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static io.aeron.Aeron.NULL_VALUE;
-import static org.agrona.BitUtil.SIZE_OF_INT;
 
 class TestNode implements AutoCloseable
 {
@@ -213,6 +213,8 @@ class TestNode implements AutoCloseable
 
     static class TestService extends StubClusteredService
     {
+        public static final int SNAPSHOT_FRAGMENT_COUNT = 500;
+        public static final int SNAPSHOT_MSG_LENGTH = 1000;
         private int index;
         private volatile int messageCount;
         private volatile boolean wasSnapshotTaken = false;
@@ -272,8 +274,13 @@ class TestNode implements AutoCloseable
 
             if (null != snapshotImage)
             {
+                final MutableInteger snapshotFragmentCount = new MutableInteger();
                 final FragmentHandler handler =
-                    (buffer, offset, length, header) -> messageCount = buffer.getInt(offset);
+                    (buffer, offset, length, header) ->
+                    {
+                        messageCount = buffer.getInt(offset);
+                        snapshotFragmentCount.value += 1;
+                    };
 
                 while (true)
                 {
@@ -285,6 +292,13 @@ class TestNode implements AutoCloseable
                     }
 
                     cluster.idle(fragments);
+                }
+
+                if (snapshotFragmentCount.get() != SNAPSHOT_FRAGMENT_COUNT)
+                {
+                    throw new AgentTerminationException(
+                        "Unexpected snapshot length: expected=" + SNAPSHOT_FRAGMENT_COUNT +
+                        " actual=" + snapshotFragmentCount);
                 }
 
                 wasSnapshotLoaded = true;
@@ -347,13 +361,17 @@ class TestNode implements AutoCloseable
 
         public void onTakeSnapshot(final Publication snapshotPublication)
         {
-            final ExpandableArrayBuffer buffer = new ExpandableArrayBuffer();
+            final ExpandableArrayBuffer buffer = new ExpandableArrayBuffer(SNAPSHOT_MSG_LENGTH);
 
-            int length = 0;
-            buffer.putInt(length, messageCount);
-            length += SIZE_OF_INT;
+            buffer.putInt(0, messageCount);
 
-            snapshotPublication.offer(buffer, 0, length);
+            for (int i = 0; i < SNAPSHOT_FRAGMENT_COUNT; i++)
+            {
+                while (snapshotPublication.offer(buffer, 0, SNAPSHOT_MSG_LENGTH) <= 0)
+                {
+                    cluster.idle();
+                }
+            }
             wasSnapshotTaken = true;
         }
 

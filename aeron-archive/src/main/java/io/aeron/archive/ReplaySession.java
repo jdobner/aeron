@@ -22,12 +22,13 @@ import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.client.ArchiveException;
 import io.aeron.logbuffer.BufferClaim;
 import io.aeron.logbuffer.FrameDescriptor;
+import io.aeron.logbuffer.LogBufferDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
 import io.aeron.protocol.HeaderFlyweight;
 import org.agrona.BitUtil;
 import org.agrona.CloseHelper;
 import org.agrona.LangUtil;
-import org.agrona.concurrent.EpochClock;
+import org.agrona.concurrent.CachedEpochClock;
 import org.agrona.concurrent.UnsafeBuffer;
 
 import java.io.File;
@@ -89,7 +90,7 @@ class ReplaySession implements Session, AutoCloseable
     private final BufferClaim bufferClaim = new BufferClaim();
     private final ExclusivePublication publication;
     private final ControlSession controlSession;
-    private final EpochClock epochClock;
+    private final CachedEpochClock epochClock;
     private final File archiveDir;
     private final Catalog catalog;
     private final Counter limitPosition;
@@ -112,7 +113,7 @@ class ReplaySession implements Session, AutoCloseable
         final Catalog catalog,
         final File archiveDir,
         final File initialSegmentFile,
-        final EpochClock epochClock,
+        final CachedEpochClock epochClock,
         final ExclusivePublication publication,
         final RecordingSummary recordingSummary,
         final Counter replayLimitPosition)
@@ -256,10 +257,10 @@ class ReplaySession implements Session, AutoCloseable
     {
         if (null == fileChannel)
         {
-            final int positionBitsToShift = publication.positionBitsToShift();
             final long startTermBasePosition = startPosition - (startPosition & (termLength - 1));
-            final int segmentOffset = (int)(replayPosition - startTermBasePosition) & (segmentLength - 1);
-            final int termId = ((int)(replayPosition >> positionBitsToShift) + publication.initialTermId());
+            final int segmentOffset = (int)((replayPosition - startTermBasePosition) & (segmentLength - 1));
+            final int termId = LogBufferDescriptor.computeTermIdFromPosition(
+                replayPosition, publication.positionBitsToShift(), publication.initialTermId());
 
             openRecordingSegment();
 
@@ -301,7 +302,7 @@ class ReplaySession implements Session, AutoCloseable
             return fragments;
         }
 
-        if (limitPosition != null && replayPosition >= stopPosition && noNewData(replayPosition, stopPosition))
+        if (null != limitPosition && replayPosition >= stopPosition && noNewData(replayPosition, stopPosition))
         {
             return fragments;
         }
@@ -317,17 +318,15 @@ class ReplaySession implements Session, AutoCloseable
         while (frameOffset < bytesRead)
         {
             final int frameLength = FrameDescriptor.frameLength(replayBuffer, frameOffset);
+            if (frameLength <= 0)
+            {
+                throw new IllegalStateException("unexpected end of recording reached at position " + replayPosition);
+            }
+
             final int frameType = FrameDescriptor.frameType(replayBuffer, frameOffset);
             final int alignedLength = BitUtil.align(frameLength, FRAME_ALIGNMENT);
-            final int dataOffset = frameOffset + DataHeaderFlyweight.HEADER_LENGTH;
             final int dataLength = frameLength - DataHeaderFlyweight.HEADER_LENGTH;
-
             long result = 0;
-
-            if (0 >= frameLength)
-            {
-                throw new IllegalStateException("unexpected end of recording reached");
-            }
 
             if (frameType == HeaderFlyweight.HDR_TYPE_DATA)
             {
@@ -342,7 +341,7 @@ class ReplaySession implements Session, AutoCloseable
                     bufferClaim
                         .flags(FrameDescriptor.frameFlags(replayBuffer, frameOffset))
                         .reservedValue(replayBuffer.getLong(frameOffset + RESERVED_VALUE_OFFSET, LITTLE_ENDIAN))
-                        .putBytes(replayBuffer, dataOffset, dataLength)
+                        .putBytes(replayBuffer, frameOffset + DataHeaderFlyweight.HEADER_LENGTH, dataLength)
                         .commit();
                 }
             }
@@ -366,7 +365,7 @@ class ReplaySession implements Session, AutoCloseable
             }
             else
             {
-                if (result == Publication.CLOSED || result == Publication.NOT_CONNECTED)
+                if (Publication.CLOSED == result || Publication.NOT_CONNECTED == result)
                 {
                     onError("stream closed before replay is complete");
                 }
@@ -407,19 +406,20 @@ class ReplaySession implements Session, AutoCloseable
 
     private boolean noNewData(final long replayPosition, final long oldStopPosition)
     {
+        final Counter limitPosition = this.limitPosition;
         final long currentLimitPosition = limitPosition.get();
         final boolean isCounterClosed = limitPosition.isClosed();
         final long newStopPosition = isCounterClosed ? catalog.stopPosition(recordingId) : currentLimitPosition;
 
         if (isCounterClosed)
         {
-            if (newStopPosition < replayLimit)
-            {
-                replayLimit = newStopPosition;
-            }
-            else if (NULL_POSITION == newStopPosition)
+            if (NULL_POSITION == newStopPosition)
             {
                 replayLimit = oldStopPosition;
+            }
+            else if (newStopPosition < replayLimit)
+            {
+                replayLimit = newStopPosition;
             }
         }
 

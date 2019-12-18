@@ -22,31 +22,25 @@ buildscript {
 plugins {
     id 'java'
     id 'idea'
-    id 'com.gradle.build-scan' version '3.0'
-    id 'io.freefair.javadoc-links' version '4.1.4' apply false
+    id 'io.freefair.javadoc-links' version '4.1.6' apply false
     id 'com.github.johnrengelman.shadow' version '5.2.0' apply false
-    id 'biz.aQute.bnd.builder' version '4.2.0' apply false
+    id 'biz.aQute.bnd.builder' version '4.3.1' apply false
     id "com.github.ben-manes.versions" version "0.27.0"
 }
 
 defaultTasks 'clean', 'build', 'shadowJar', 'install'
 
-def env = System.getenv()
-if (env.CI || env.TRAVIS) {
-    buildScan {
-        termsOfServiceUrl = 'https://gradle.com/terms-of-service'
-        apply from: 'gradle/build-scans.gradle'
-    }
-}
-
 def aeronGroup = 'io.aeron'
 def aeronVersion = file('version.txt').text.trim()
 
-def agronaVersion = '1.0.11'
-def sbeVersion = '1.14.1'
-def byteBuddyVersion = '1.10.2'
-def hdrHistogramVersion = '2.1.11'
-def mockitoVersion = '3.1.0'
+def agronaVersion = '1.1.0'
+def sbeVersion = '1.15.0'
+def checkstyleVersion = '8.27'
+def hamcrestVersion = '2.2'
+def junitVersion = '5.5.2'
+def mockitoVersion = '3.2.4'
+def byteBuddyVersion = '1.10.5'
+def hdrHistogramVersion = '2.1.12'
 
 group = aeronGroup
 version = aeronVersion
@@ -110,6 +104,18 @@ def projectPom = {
             email = 'nitsanw@yahoo.com'
             url = 'https://github.com/nitsanw'
         }
+        developer {
+            id = 'mikeb01'
+            name = 'Mike Barker'
+            email = 'mikeb01@gmail.com'
+            url = 'https://github.com/mikeb01'
+        }
+        developer {
+            id = 'vyazelenko'
+            name = 'Dmitry Vyazelenko'
+            email = 'vyazelenko@yahoo.com'
+            url = 'https://github.com/vyazelenko'
+        }
     }
 }
 
@@ -140,16 +146,21 @@ subprojects {
     jar.enabled = true
 
     dependencies {
-        checkstyle 'com.puppycrawl.tools:checkstyle:8.26'
+        checkstyle "com.puppycrawl.tools:checkstyle:${checkstyleVersion}"
 
         compile "org.agrona:agrona:${agronaVersion}"
 
-        testCompile 'org.hamcrest:hamcrest:2.2'
-        testCompile "org.mockito:mockito-core:${mockitoVersion}"
-        testCompile 'junit:junit:4.12'
+        testImplementation "org.hamcrest:hamcrest:${hamcrestVersion}"
+        testImplementation "org.mockito:mockito-junit-jupiter:${mockitoVersion}"
+        testImplementation "org.junit.jupiter:junit-jupiter-api:${junitVersion}"
+        testImplementation "org.junit.jupiter:junit-jupiter-params:${junitVersion}"
+        testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${junitVersion}"
+        // Compatibility with JUnit 4
+        testCompileOnly "junit:junit:4.12"
+        testRuntimeOnly "org.junit.vintage:junit-vintage-engine:${junitVersion}"
     }
 
-    checkstyle.toolVersion = '8.26'
+    checkstyle.toolVersion = "${checkstyleVersion}"
 
     compileJava {
         if (JavaVersion.current().ordinal() >= JavaVersion.VERSION_1_9.ordinal()) {
@@ -181,6 +192,8 @@ subprojects {
             jvmArgs('--add-exports', 'jdk.unsupported/sun.misc=ALL-UNNAMED')
         }
 
+        useJUnitPlatform()
+
         testLogging {
             showStandardStreams = true
             exceptionFormat = 'full'
@@ -192,7 +205,6 @@ subprojects {
             'aeron.sender.idle.strategy': 'org.agrona.concurrent.YieldingIdleStrategy',
             'aeron.receiver.idle.strategy': 'org.agrona.concurrent.YieldingIdleStrategy',
             'aeron.use.windows.high.res.timer': 'true',
-            'aeron.dir.warn.if.exists': 'false',
             'aeron.dir.delete.on.start': 'true',
             'aeron.dir.delete.on.shutdown': 'true',
             'aeron.term.buffer.sparse.file': 'true',
@@ -227,9 +239,19 @@ subprojects {
         required { isReleasedVersion && gradle.taskGraph.hasTask("uploadArchives") }
         sign configurations.archives
     }
+
+    install {
+        repositories.mavenInstaller.pom.project(projectPom)
+    }
 }
 
 project(':aeron-client') {
+    apply plugin: 'biz.aQute.bnd.builder'
+
+    dependencies {
+        testCompile "org.mockito:mockito-inline:${mockitoVersion}"
+    }
+
     uploadArchives {
         repositories {
             mavenDeployer {
@@ -249,8 +271,6 @@ project(':aeron-client') {
             }
         }
     }
-
-    apply plugin: 'biz.aQute.bnd.builder'
 
     jar {
         bnd """
@@ -287,6 +307,7 @@ project(':aeron-client') {
 
 project(':aeron-driver') {
     apply plugin: 'application'
+    apply plugin: 'biz.aQute.bnd.builder'
 
     mainClassName = 'io.aeron.driver.MediaDriver'
 
@@ -314,8 +335,6 @@ project(':aeron-driver') {
             }
         }
     }
-
-    apply plugin: 'biz.aQute.bnd.builder'
 
     jar {
         bnd """
@@ -355,6 +374,8 @@ project(':aeron-driver') {
 }
 
 project(':aeron-archive') {
+    apply plugin: 'biz.aQute.bnd.builder'
+
     configurations{
         codecGeneration
     }
@@ -386,15 +407,21 @@ project(':aeron-archive') {
     }
 
     task generateCodecs(type: JavaExec) {
+        def codecsFile = 'src/main/resources/aeron-archive-codecs.xml'
+        def markCodecsFile = 'src/main/resources/aeron-archive-mark-codecs.xml'
+        def sbeFile = 'src/main/resources/fpl/sbe.xsd'
+
+        inputs.files(codecsFile, markCodecsFile, sbeFile)
+        outputs.dir generatedDir
+
         main = 'uk.co.real_logic.sbe.SbeTool'
         classpath = configurations.codecGeneration
         systemProperties(
             'sbe.output.dir': generatedDir,
             'sbe.target.language': 'Java',
-            'sbe.validation.xsd': 'src/main/resources/fpl/sbe.xsd',
+            'sbe.validation.xsd': sbeFile,
             'sbe.validation.stop.on.error': 'true')
-        args = ['src/main/resources/aeron-archive-codecs.xml',
-                'src/main/resources/aeron-archive-mark-codecs.xml']
+        args = [codecsFile, markCodecsFile]
     }
 
     def generatedCppDir = file(System.properties['codec.target.dir'] ?: "${rootDir}/cppbuild/Release/generated")
@@ -409,8 +436,6 @@ project(':aeron-archive') {
             'sbe.validation.stop.on.error': 'true')
         args = ['src/main/resources/aeron-archive-codecs.xml']
     }
-
-    apply plugin: 'biz.aQute.bnd.builder'
 
     jar {
         from("${buildDir}/classes/java/generated") {
@@ -454,6 +479,7 @@ project(':aeron-archive') {
     }
 
     task sourcesJar(type: Jar) {
+        dependsOn generateCodecs
         archiveClassifier = 'sources'
         from sourceSets.main.allSource
         from sourceSets.generated.allSource
@@ -471,6 +497,8 @@ project(':aeron-archive') {
 }
 
 project(':aeron-cluster') {
+    apply plugin: 'biz.aQute.bnd.builder'
+
     configurations{
         codecGeneration
     }
@@ -502,18 +530,22 @@ project(':aeron-cluster') {
     }
 
     task generateCodecs(type: JavaExec) {
+        def codecsFile = 'src/main/resources/aeron-cluster-codecs.xml'
+        def markCodecsFile = 'src/main/resources/aeron-cluster-mark-codecs.xml'
+        def sbeFile = 'src/main/resources/fpl/sbe.xsd'
+
+        inputs.files(codecsFile, markCodecsFile, sbeFile)
+        outputs.dir generatedDir
+
         main = 'uk.co.real_logic.sbe.SbeTool'
         classpath = configurations.codecGeneration
         systemProperties(
             'sbe.output.dir': generatedDir,
             'sbe.target.language': 'Java',
-            'sbe.validation.xsd': 'src/main/resources/fpl/sbe.xsd',
+            'sbe.validation.xsd': sbeFile,
             'sbe.validation.stop.on.error': 'true')
-        args = ['src/main/resources/aeron-cluster-codecs.xml',
-                'src/main/resources/aeron-cluster-mark-codecs.xml']
+        args = [codecsFile, markCodecsFile]
     }
-
-    apply plugin: 'biz.aQute.bnd.builder'
 
     jar {
         from("${buildDir}/classes/java/generated") {
@@ -557,6 +589,7 @@ project(':aeron-cluster') {
     }
 
     task sourcesJar(type: Jar) {
+        dependsOn generateCodecs
         archiveClassifier = 'sources'
         from sourceSets.main.allSource
         from sourceSets.generated.allSource
@@ -581,10 +614,6 @@ project(':aeron-agent') {
         compile "net.bytebuddy:byte-buddy:${byteBuddyVersion}"
     }
 
-    test {
-        forkEvery = 1
-    }
-
     jar {
         manifest.attributes(
             'Implementation-Title': 'Aeron',
@@ -599,9 +628,13 @@ project(':aeron-agent') {
     }
 
     shadowJar {
+        mustRunAfter jar
+
         dependencies {
             exclude(project(':aeron-client'))
             exclude(project(':aeron-driver'))
+            exclude(project(':aeron-archive'))
+            exclude(project(':aeron-cluster'))
             exclude(dependency('org.agrona:agrona'))
         }
 
@@ -738,6 +771,7 @@ project(':aeron-system-tests') {
 
     test {
         systemProperties('java.net.preferIPv4Stack': 'true')
+        systemProperties('aeron.test.system.aeronmd.path': System.getProperty('aeron.test.system.aeronmd.path'))
     }
 
     uploadArchives {
@@ -784,7 +818,6 @@ project(':aeron-all') {
         compile project(':aeron-driver')
         compile project(':aeron-archive')
         compile project(':aeron-cluster')
-        compile project(':aeron-agent')
         compile project(':aeron-samples')
     }
 
@@ -795,17 +828,7 @@ project(':aeron-all') {
         source += project(':aeron-archive').sourceSets.generated.allJava
         source += project(':aeron-cluster').sourceSets.main.allJava
         source += project(':aeron-cluster').sourceSets.generated.allJava
-        source += project(':aeron-agent').sourceSets.main.allJava
         source += project(':aeron-samples').sourceSets.main.allJava
-    }
-
-    shadowJar {
-        manifest.attributes(
-            'Implementation-Title': 'Aeron',
-            'Implementation-Version': "${aeronVersion}",
-            'Implementation-Vendor': 'Real Logic Limited',
-            'Automatic-Module-Name': 'io.aeron.all'
-        )
     }
 
     uploadArchives {
@@ -854,7 +877,6 @@ project(':aeron-all') {
         archiveClassifier = 'sources'
         from project(':aeron-client').sourceSets.main.allSource
         from project(':aeron-driver').sourceSets.main.allSource
-        from project(':aeron-agent').sourceSets.main.allSource
         from project(':aeron-archive').sourceSets.main.allSource
         from project(':aeron-archive').sourceSets.generated.allSource
         from project(':aeron-cluster').sourceSets.main.allSource
@@ -867,9 +889,14 @@ project(':aeron-all') {
     }
 
     shadowJar {
+        mustRunAfter jar
         archiveClassifier = ''
+        manifest.attributes(
+            'Implementation-Title': 'Aeron',
+            'Implementation-Version': "${aeronVersion}",
+            'Implementation-Vendor': 'Real Logic Limited',
+            'Automatic-Module-Name': 'io.aeron.all')
         relocate 'org.HdrHistogram', 'io.aeron.shadow.org.HdrHistogram'
-        relocate 'net.bytebuddy', 'io.aeron.shadow.net.bytebuddy'
     }
 
     artifacts {
@@ -897,6 +924,6 @@ task uploadToMavenCentral {
 }
 
 wrapper {
-    gradleVersion = '5.6.3'
+    gradleVersion = '6.0.1'
     distributionType = 'ALL'
 }

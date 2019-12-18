@@ -121,6 +121,7 @@ class ControlSessionDemuxer implements Session, FragmentHandler
                     decoder.responseStreamId(),
                     decoder.version(),
                     decoder.responseChannel(),
+                    ArrayUtil.EMPTY_BYTE_ARRAY,
                     this);
                 controlSessionByIdMap.put(session.sessionId(), session);
                 break;
@@ -656,6 +657,111 @@ class ControlSessionDemuxer implements Session, FragmentHandler
                     correlationId,
                     decoder.srcRecordingId(),
                     decoder.dstRecordingId());
+                break;
+            }
+
+            case AuthConnectRequestDecoder.TEMPLATE_ID:
+            {
+                final AuthConnectRequestDecoder decoder = decoders.authConnectRequest;
+                decoder.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    headerDecoder.blockLength(),
+                    headerDecoder.version());
+
+                final String responseChannel = decoder.responseChannel();
+                final int credentialsLength = decoder.encodedCredentialsLength();
+                final byte[] credentials;
+
+                if (credentialsLength > 0)
+                {
+                    credentials = new byte[credentialsLength];
+                    decoder.getEncodedCredentials(credentials, 0, credentialsLength);
+                }
+                else
+                {
+                    credentials = ArrayUtil.EMPTY_BYTE_ARRAY;
+                }
+
+                final ControlSession session = conductor.newControlSession(
+                    decoder.correlationId(),
+                    decoder.responseStreamId(),
+                    decoder.version(),
+                    responseChannel,
+                    credentials,
+                    this);
+                controlSessionByIdMap.put(session.sessionId(), session);
+                break;
+            }
+
+            case ChallengeResponseDecoder.TEMPLATE_ID:
+            {
+                final ChallengeResponseDecoder decoder = decoders.challengeResponse;
+                decoder.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    headerDecoder.blockLength(),
+                    headerDecoder.version());
+
+                final long controlSessionId = decoder.controlSessionId();
+                final ControlSession session = controlSessionByIdMap.get(controlSessionId);
+                if (null != session)
+                {
+                    final int credentialsLength = decoder.encodedCredentialsLength();
+                    final byte[] credentials;
+
+                    if (credentialsLength > 0)
+                    {
+                        credentials = new byte[credentialsLength];
+                        decoder.getEncodedCredentials(credentials, 0, credentialsLength);
+                    }
+                    else
+                    {
+                        credentials = ArrayUtil.EMPTY_BYTE_ARRAY;
+                    }
+
+                    session.onChallengeResponse(decoder.correlationId(), credentials);
+                }
+                break;
+            }
+
+            case KeepAliveRequestDecoder.TEMPLATE_ID:
+            {
+                final KeepAliveRequestDecoder decoder = decoders.keepAliveRequest;
+                decoder.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    headerDecoder.blockLength(),
+                    headerDecoder.version());
+
+                final long correlationId = decoder.correlationId();
+                final long controlSessionId = decoder.controlSessionId();
+                final ControlSession controlSession = getControlSession(controlSessionId, correlationId);
+                controlSession.onKeepAlive(correlationId);
+                break;
+            }
+
+            case TaggedReplicateRequestDecoder.TEMPLATE_ID:
+            {
+                final TaggedReplicateRequestDecoder decoder = decoders.taggedReplicateRequest;
+                decoder.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    headerDecoder.blockLength(),
+                    headerDecoder.version());
+
+                final long correlationId = decoder.correlationId();
+                final long controlSessionId = decoder.controlSessionId();
+                final ControlSession controlSession = getControlSession(controlSessionId, correlationId);
+                controlSession.onReplicateTagged(
+                    correlationId,
+                    decoder.srcRecordingId(),
+                    decoder.dstRecordingId(),
+                    decoder.channelTagId(),
+                    decoder.subscriptionTagId(),
+                    decoder.srcControlStreamId(),
+                    decoder.srcControlChannel(),
+                    decoder.liveDestination());
                 break;
             }
         }

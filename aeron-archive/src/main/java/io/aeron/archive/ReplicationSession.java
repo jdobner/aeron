@@ -26,7 +26,7 @@ import io.aeron.archive.codecs.SourceLocation;
 import io.aeron.exceptions.TimeoutException;
 import io.aeron.logbuffer.LogBufferDescriptor;
 import org.agrona.CloseHelper;
-import org.agrona.concurrent.EpochClock;
+import org.agrona.concurrent.CachedEpochClock;
 
 import java.util.concurrent.TimeUnit;
 
@@ -63,6 +63,8 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
     private final long actionTimeoutMs;
     private final long correlationId;
     private final long replicationId;
+    private final long channelTagId;
+    private final long subscriptionTagId;
     private final long srcRecordingId;
     private long dstRecordingId;
     private int replayStreamId;
@@ -72,7 +74,7 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
     private final String replicationChannel;
     private final String liveDestination;
     private String replayDestination;
-    private final EpochClock epochClock;
+    private final CachedEpochClock epochClock;
     private final ArchiveConductor conductor;
     private final ControlSession controlSession;
     private final ControlResponseProxy controlResponseProxy;
@@ -89,12 +91,14 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         final long correlationId,
         final long srcRecordingId,
         final long dstRecordingId,
+        final long channelTagId,
+        final long subscriptionTagId,
         final long replicationId,
         final String liveDestination,
         final String replicationChannel,
         final RecordingSummary recordingSummary,
         final AeronArchive.Context context,
-        final EpochClock epochClock,
+        final CachedEpochClock epochClock,
         final Catalog catalog,
         final ControlResponseProxy controlResponseProxy,
         final ControlSession controlSession)
@@ -113,6 +117,9 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         this.conductor = controlSession.archiveConductor();
         this.controlSession = controlSession;
         this.actionTimeoutMs = TimeUnit.NANOSECONDS.toMillis(context.messageTimeoutNs());
+
+        this.channelTagId = NULL_VALUE == channelTagId ? replicationId : channelTagId;
+        this.subscriptionTagId = NULL_VALUE == subscriptionTagId ? replicationId : subscriptionTagId;
 
         if (null != recordingSummary)
         {
@@ -390,11 +397,19 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         if (NULL_VALUE == activeCorrelationId)
         {
             final long correlationId = aeron.nextCorrelationId();
+            final ChannelUri channelUri = ChannelUri.parse(replicationChannel);
+            if (null != liveDestination)
+            {
+                channelUri.put(CommonContext.SESSION_ID_PARAM_NAME, Integer.toString(replaySessionId));
+                channelUri.put(CommonContext.LINGER_PARAM_NAME, "0");
+                channelUri.put(CommonContext.EOS_PARAM_NAME, "false");
+            }
+
             if (srcArchive.archiveProxy().replay(
                 srcRecordingId,
                 replayPosition,
                 Long.MAX_VALUE,
-                null == liveDestination ? replicationChannel : replicationChannel + "|session-id=" + replaySessionId,
+                channelUri.toString(),
                 replayStreamId,
                 correlationId,
                 srcArchive.controlSessionId()))
@@ -433,7 +448,7 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         final String channel = builder
             .media(channelUri)
             .alias(channelUri)
-            .tags(replicationId + "," + replicationId)
+            .tags(channelTagId + "," + subscriptionTagId)
             .controlMode(CommonContext.MDC_CONTROL_MODE_MANUAL)
             .rejoin(false)
             .sessionId((int)srcReplaySessionId)
@@ -479,13 +494,13 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         int workCount = 0;
 
         final long position = image.position();
-        if (position == srcStopPosition || image.isClosed())
+        if ((NULL_VALUE != srcStopPosition && position >= srcStopPosition) || image.isClosed())
         {
-            if (position == srcStopPosition || (NULL_VALUE == srcStopPosition && image.isEndOfStream()))
+            if ((NULL_VALUE != srcStopPosition && position >= srcStopPosition) ||
+                (NULL_VALUE == srcStopPosition && image.isEndOfStream()))
             {
                 srcReplaySessionId = NULL_VALUE;
                 signal(position, SYNC);
-                stopRecording();
             }
 
             state(State.DONE);
@@ -558,7 +573,8 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
 
                 if (shouldAddLiveDestination(position))
                 {
-                    recordingSubscription.asyncAddDestination(liveDestination);
+                    final String liveChannel = ChannelUri.addSessionId(liveDestination, replaySessionId);
+                    recordingSubscription.asyncAddDestination(liveChannel);
                     isLiveAdded = true;
                 }
                 else if (shouldStopReplay(position))
@@ -612,7 +628,7 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
     private void signal(final long position, final RecordingSignal recordingSignal)
     {
         final long subscriptionId = null != recordingSubscription ? recordingSubscription.registrationId() : NULL_VALUE;
-        controlSession.attemptSendSignal(replicationId, dstRecordingId, subscriptionId, position, recordingSignal);
+        controlSession.attemptSignal(replicationId, dstRecordingId, subscriptionId, position, recordingSignal);
     }
 
     private void stopReplaySession()

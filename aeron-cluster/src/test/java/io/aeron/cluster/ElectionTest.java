@@ -25,6 +25,7 @@ import org.agrona.collections.Int2ObjectHashMap;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.InOrder;
+import org.mockito.Mockito;
 
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -38,7 +39,8 @@ import static org.mockito.Mockito.*;
 @SuppressWarnings("MethodLength")
 public class ElectionTest
 {
-    public static final long RECORDING_ID = 1L;
+    private static final long RECORDING_ID = 1L;
+    private static final int LOG_SESSION_ID = 777;
     private final Aeron aeron = mock(Aeron.class);
     private final Counter electionStateCounter = mock(Counter.class);
     private final RecordingLog recordingLog = mock(RecordingLog.class);
@@ -59,7 +61,9 @@ public class ElectionTest
     {
         when(aeron.addCounter(anyInt(), anyString())).thenReturn(electionStateCounter);
         when(consensusModuleAgent.logRecordingId()).thenReturn(RECORDING_ID);
-        when(consensusModuleAgent.addNewLogPublication()).thenReturn(mock(Publication.class));
+        final Publication mockPublication = mock(Publication.class);
+        when(mockPublication.sessionId()).thenReturn(LOG_SESSION_ID);
+        when(consensusModuleAgent.addNewLogPublication()).thenReturn(mockPublication);
         when(clusterMarkFile.candidateTermId()).thenReturn((long)Aeron.NULL_VALUE);
     }
 
@@ -74,15 +78,14 @@ public class ElectionTest
         final ClusterMember thisMember = clusterMembers[0];
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, thisMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long newLeadershipTermId = leadershipTermId + 1;
         final long t1 = 1;
         election.doWork(t1);
         election.doWork(t1);
+        verify(clusterMarkFile).candidateTermId();
         verify(consensusModuleAgent).becomeLeader(eq(newLeadershipTermId), eq(logPosition), anyInt());
         verify(recordingLog).appendTerm(RECORDING_ID, newLeadershipTermId, logPosition, NANOSECONDS.toMillis(t1));
-        assertThat(election.state(), is(Election.State.LEADER_READY));
+        verify(electionStateCounter).setOrdered(Election.State.LEADER_READY.code());
     }
 
     @Test
@@ -97,19 +100,17 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, candidateMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long candidateTermId = leadershipTermId + 1;
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         election.onCanvassPosition(leadershipTermId, logPosition, 1);
         election.onCanvassPosition(leadershipTermId, logPosition, 2);
 
         final long t2 = 2;
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.NOMINATE));
+        verify(electionStateCounter).setOrdered(Election.State.NOMINATE.code());
 
         final long t3 = t2 + (ctx.electionTimeoutNs() >> 1);
         election.doWork(t3);
@@ -126,7 +127,7 @@ public class ElectionTest
             logPosition,
             candidateTermId,
             candidateMember.id());
-        assertThat(election.state(), is(Election.State.CANDIDATE_BALLOT));
+        verify(electionStateCounter).setOrdered(Election.State.CANDIDATE_BALLOT.code());
         verify(consensusModuleAgent).role(Cluster.Role.CANDIDATE);
 
         when(consensusModuleAgent.role()).thenReturn(Cluster.Role.CANDIDATE);
@@ -137,23 +138,22 @@ public class ElectionTest
 
         final long t4 = t3 + 1;
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.LEADER_REPLAY));
+        verify(electionStateCounter).setOrdered(Election.State.LEADER_REPLAY.code());
 
         final long t5 = t4 + 1;
         election.doWork(t5);
         election.doWork(t5);
         verify(consensusModuleAgent).becomeLeader(eq(candidateTermId), eq(logPosition), anyInt());
         verify(recordingLog).appendTerm(RECORDING_ID, candidateTermId, logPosition, NANOSECONDS.toMillis(t5));
+        verify(electionStateCounter).setOrdered(Election.State.LEADER_READY.code());
 
         assertThat(clusterMembers[1].logPosition(), is(NULL_POSITION));
         assertThat(clusterMembers[2].logPosition(), is(NULL_POSITION));
-        assertThat(election.state(), is(Election.State.LEADER_READY));
         assertThat(election.leadershipTermId(), is(candidateTermId));
 
         final long t6 = t5 + ctx.leaderHeartbeatIntervalNs();
         when(recordingLog.getTermTimestamp(candidateTermId)).thenReturn(t6);
-        final int logSessionId = -7;
-        election.logSessionId(logSessionId);
+
         election.doWork(t6);
         verify(memberStatusPublisher).newLeadershipTerm(
             clusterMembers[1].publication(),
@@ -162,7 +162,7 @@ public class ElectionTest
             logPosition,
             t6,
             candidateMember.id(),
-            logSessionId);
+            LOG_SESSION_ID);
         verify(memberStatusPublisher).newLeadershipTerm(
             clusterMembers[2].publication(),
             leadershipTermId,
@@ -170,8 +170,8 @@ public class ElectionTest
             logPosition,
             t6,
             candidateMember.id(),
-            logSessionId);
-        assertThat(election.state(), is(Election.State.LEADER_READY));
+            LOG_SESSION_ID);
+        verify(electionStateCounter).setOrdered(Election.State.LEADER_READY.code());
 
         when(consensusModuleAgent.electionComplete()).thenReturn(true);
 
@@ -195,11 +195,9 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, followerMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         final long candidateTermId = leadershipTermId + 1;
         final long t2 = 2;
@@ -213,11 +211,11 @@ public class ElectionTest
             followerMember.id(),
             true);
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.FOLLOWER_BALLOT));
+        verify(electionStateCounter).setOrdered(Election.State.FOLLOWER_BALLOT.code());
 
         final int logSessionId = -7;
         election.onNewLeadershipTerm(leadershipTermId, candidateTermId, logPosition, t2, candidateId, logSessionId);
-        assertThat(election.state(), is(Election.State.FOLLOWER_REPLAY));
+        verify(electionStateCounter).setOrdered(Election.State.FOLLOWER_REPLAY.code());
 
         when(consensusModuleAgent.createAndRecordLogSubscriptionAsFollower(anyString()))
             .thenReturn(mock(Subscription.class));
@@ -230,7 +228,7 @@ public class ElectionTest
         election.doWork(t3);
         election.doWork(t3);
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.FOLLOWER_READY));
+        verify(electionStateCounter).setOrdered(Election.State.FOLLOWER_READY.code());
 
         when(memberStatusPublisher.appendedPosition(any(), anyLong(), anyLong(), anyInt())).thenReturn(Boolean.TRUE);
         when(consensusModuleAgent.electionComplete()).thenReturn(true);
@@ -254,11 +252,9 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, followerMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         final long t2 = t1 + ctx.electionStatusIntervalNs();
         election.doWork(t2);
@@ -266,14 +262,13 @@ public class ElectionTest
             clusterMembers[0].publication(), leadershipTermId, logPosition, followerMember.id());
         verify(memberStatusPublisher).canvassPosition(
             clusterMembers[2].publication(), leadershipTermId, logPosition, followerMember.id());
-        assertThat(election.state(), is(Election.State.CANVASS));
 
         election.onCanvassPosition(leadershipTermId, logPosition, 0);
         election.onCanvassPosition(leadershipTermId, logPosition, 2);
 
         final long t3 = t2 + 1;
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.NOMINATE));
+        verify(electionStateCounter).setOrdered(Election.State.NOMINATE.code());
     }
 
     @Test
@@ -286,22 +281,18 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, followerMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         final long t2 = t1 + ctx.electionStatusIntervalNs();
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.CANVASS));
 
         election.onCanvassPosition(leadershipTermId + 1, logPosition, 1);
         election.onCanvassPosition(leadershipTermId, logPosition, 2);
 
         final long t3 = t2 + 1;
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.CANVASS));
     }
 
     @Test
@@ -314,28 +305,25 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, followerMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         final long t2 = t1 + ctx.electionStatusIntervalNs();
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.CANVASS));
 
         election.onCanvassPosition(leadershipTermId, logPosition, 0);
         election.onCanvassPosition(leadershipTermId, logPosition, 2);
 
         final long t3 = t2 + 1;
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.NOMINATE));
+        verify(electionStateCounter).setOrdered(Election.State.NOMINATE.code());
 
         final long t4 = t3 + 1;
         final long candidateTermId = leadershipTermId + 1;
         election.onRequestVote(leadershipTermId, logPosition, candidateTermId, 0);
         election.doWork(t4);
-        assertThat(election.state(), is(Election.State.FOLLOWER_BALLOT));
+        verify(electionStateCounter).setOrdered(Election.State.FOLLOWER_BALLOT.code());
     }
 
     @Test
@@ -348,22 +336,18 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, followerMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         election.onAppendedPosition(leadershipTermId, logPosition, 0);
-        assertThat(election.state(), is(Election.State.CANVASS));
 
         final long t2 = t1 + 1;
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.CANVASS));
 
         final long t3 = t2 + ctx.startupCanvassTimeoutNs();
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.NOMINATE));
+        verify(electionStateCounter).setOrdered(Election.State.NOMINATE.code());
     }
 
     @Test
@@ -376,22 +360,20 @@ public class ElectionTest
 
         final Election election = newElection(false, leadershipTermId, logPosition, clusterMembers, candidateMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         election.onCanvassPosition(leadershipTermId, logPosition, 0);
         election.onCanvassPosition(leadershipTermId, logPosition, 2);
 
         final long t2 = t1 + 1;
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.NOMINATE));
+        verify(electionStateCounter).setOrdered(Election.State.NOMINATE.code());
 
         final long t3 = t2 + (ctx.electionTimeoutNs() >> 1);
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.CANDIDATE_BALLOT));
+        verify(electionStateCounter).setOrdered(Election.State.CANDIDATE_BALLOT.code());
 
         final long t4 = t3 + ctx.electionTimeoutNs();
         final long candidateTermId = leadershipTermId + 1;
@@ -399,7 +381,7 @@ public class ElectionTest
         election.onVote(
             candidateTermId, leadershipTermId, logPosition, candidateMember.id(), clusterMembers[2].id(), true);
         election.doWork(t4);
-        assertThat(election.state(), is(Election.State.LEADER_REPLAY));
+        verify(electionStateCounter).setOrdered(Election.State.LEADER_REPLAY.code());
     }
 
     @Test
@@ -412,22 +394,20 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, candidateMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         election.onCanvassPosition(leadershipTermId, logPosition, 0);
         election.onCanvassPosition(leadershipTermId, logPosition, 2);
 
         final long t2 = t1 + 1;
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.NOMINATE));
+        verify(electionStateCounter).setOrdered(Election.State.NOMINATE.code());
 
         final long t3 = t2 + (ctx.electionTimeoutNs() >> 1);
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.CANDIDATE_BALLOT));
+        verify(electionStateCounter).setOrdered(Election.State.CANDIDATE_BALLOT.code());
 
         final long t4 = t3 + 1;
         final long candidateTermId = leadershipTermId + 1;
@@ -437,7 +417,7 @@ public class ElectionTest
         election.onVote(
             candidateTermId, leadershipTermId, logPosition, candidateMember.id(), clusterMembers[2].id(), true);
         election.doWork(t4);
-        assertThat(election.state(), is(Election.State.LEADER_REPLAY));
+        verify(electionStateCounter).setOrdered(Election.State.LEADER_REPLAY.code());
     }
 
     @Test
@@ -450,28 +430,26 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, candidateMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        final InOrder inOrder = Mockito.inOrder(electionStateCounter);
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         election.onCanvassPosition(leadershipTermId, logPosition, 0);
         election.onCanvassPosition(leadershipTermId, logPosition, 2);
 
         final long t2 = t1 + 1;
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.NOMINATE));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.NOMINATE.code());
 
         final long t3 = t2 + (ctx.electionTimeoutNs() >> 1);
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.CANDIDATE_BALLOT));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.CANDIDATE_BALLOT.code());
 
         final long t4 = t3 + ctx.electionTimeoutNs();
         election.doWork(t4);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
         assertThat(election.leadershipTermId(), is(leadershipTermId));
-        assertThat(election.candidateTermId(), is(leadershipTermId + 1));
     }
 
     @Test
@@ -484,32 +462,30 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, candidateMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        final InOrder inOrder = Mockito.inOrder(electionStateCounter);
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         election.onCanvassPosition(leadershipTermId, logPosition, 0);
 
         final long t2 = t1 + ctx.startupCanvassTimeoutNs();
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.NOMINATE));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.NOMINATE.code());
 
         final long t3 = t2 + (ctx.electionTimeoutNs() >> 1);
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.CANDIDATE_BALLOT));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.CANDIDATE_BALLOT.code());
 
         final long t4 = t3 + 1;
         when(consensusModuleAgent.role()).thenReturn(Cluster.Role.CANDIDATE);
         election.onVote(
             leadershipTermId + 1, leadershipTermId, logPosition, candidateMember.id(), clusterMembers[2].id(), false);
         election.doWork(t4);
-        assertThat(election.state(), is(Election.State.CANDIDATE_BALLOT));
 
         final long t5 = t4 + ctx.electionTimeoutNs();
         election.doWork(t5);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         election.onCanvassPosition(leadershipTermId, logPosition, 0);
 
@@ -518,11 +494,11 @@ public class ElectionTest
 
         final long t7 = t6 + ctx.electionTimeoutNs();
         election.doWork(t7);
-        assertThat(election.state(), is(Election.State.NOMINATE));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.NOMINATE.code());
 
         final long t8 = t7 + ctx.electionTimeoutNs();
         election.doWork(t8);
-        assertThat(election.state(), is(Election.State.CANDIDATE_BALLOT));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.CANDIDATE_BALLOT.code());
 
         final long t9 = t8 + 1;
         election.doWork(t9);
@@ -533,13 +509,13 @@ public class ElectionTest
 
         final long t10 = t9 + ctx.electionTimeoutNs();
         election.doWork(t10);
-        assertThat(election.state(), is(Election.State.LEADER_REPLAY));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.LEADER_REPLAY.code());
 
         final long t11 = t10 + 1;
         election.doWork(t11);
         election.doWork(t11);
-        assertThat(election.state(), is(Election.State.LEADER_READY));
         assertThat(election.leadershipTermId(), is(candidateTermId));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.LEADER_READY.code());
     }
 
     @Test
@@ -552,22 +528,21 @@ public class ElectionTest
 
         final Election election = newElection(leadershipTermId, logPosition, clusterMembers, followerMember);
 
-        assertThat(election.state(), is(Election.State.INIT));
-
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        final InOrder inOrder = Mockito.inOrder(electionStateCounter);
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
 
         final long candidateTermId = leadershipTermId + 1;
         election.onRequestVote(leadershipTermId, logPosition, candidateTermId, 0);
 
         final long t2 = t1 + 1;
         election.doWork(t2);
-        assertThat(election.state(), is(Election.State.FOLLOWER_BALLOT));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.FOLLOWER_BALLOT.code());
 
         final long t3 = t2 + ctx.electionTimeoutNs();
         election.doWork(t3);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        inOrder.verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
         assertThat(election.leadershipTermId(), is(leadershipTermId));
     }
 
@@ -584,7 +559,7 @@ public class ElectionTest
 
         final long t1 = 1;
         election.doWork(t1);
-        assertThat(election.state(), is(Election.State.CANVASS));
+        verify(electionStateCounter).setOrdered(Election.State.CANVASS.code());
         verify(consensusModuleAgent).prepareForNewLeadership(logPosition);
         verify(consensusModuleAgent).role(Cluster.Role.FOLLOWER);
     }

@@ -55,6 +55,9 @@ using namespace aeron::concurrent::ringbuffer;
 using namespace aeron::concurrent;
 using namespace aeron;
 
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x)
+
 #define CHANNEL_1 "aeron:udp?endpoint=localhost:40001"
 #define CHANNEL_2 "aeron:udp?endpoint=localhost:40002"
 #define CHANNEL_3 "aeron:udp?endpoint=localhost:40003"
@@ -66,6 +69,38 @@ using namespace aeron;
 #define STREAM_ID_2 (102)
 #define STREAM_ID_3 (103)
 #define STREAM_ID_4 (104)
+
+#define _SESSION_ID_1 1000
+#define _SESSION_ID_2 1001
+#define _SESSION_ID_3 100000
+#define _SESSION_ID_4 100002
+#define _SESSION_ID_5 100003
+
+#define _MTU_1 4096
+#define _MTU_2 8192
+
+#define _TERM_LENGTH_1 65536
+#define _TERM_LENGTH_2 131072
+
+#define CHANNEL_1_WITH_SESSION_ID_1 "aeron:udp?endpoint=localhost:40001|session-id=" STR(_SESSION_ID_1)
+#define CHANNEL_1_WITH_SESSION_ID_2 "aeron:udp?endpoint=localhost:40001|session-id=" STR(_SESSION_ID_2)
+#define CHANNEL_1_WITH_SESSION_ID_3 "aeron:udp?endpoint=localhost:40001|session-id=" STR(_SESSION_ID_3)
+#define CHANNEL_1_WITH_SESSION_ID_4 "aeron:udp?endpoint=localhost:40001|session-id=" STR(_SESSION_ID_4)
+#define CHANNEL_1_WITH_SESSION_ID_5 "aeron:udp?endpoint=localhost:40001|session-id=" STR(_SESSION_ID_5)
+
+#define CHANNEL_1_WITH_SESSION_ID_1_MTU_1 "aeron:udp?endpoint=localhost:40001|session-id=" STR(_SESSION_ID_1) "|mtu=" STR(_MTU_1)
+#define CHANNEL_1_WITH_SESSION_ID_1_MTU_2 "aeron:udp?endpoint=localhost:40001|session-id=" STR(_SESSION_ID_1) "|mtu=" STR(_MTU_2)
+
+#define CHANNEL_1_WITH_SESSION_ID_1_TERM_LENGTH_1 "aeron:udp?endpoint=localhost:40001|session-id=" STR(_SESSION_ID_1) "|term-length=" STR(_TERM_LENGTH_1)
+#define CHANNEL_1_WITH_SESSION_ID_1_TERM_LENGTH_2 "aeron:udp?endpoint=localhost:40001|session-id=" STR(_SESSION_ID_1) "|term-length=" STR(_TERM_LENGTH_2)
+
+#define IPC_CHANNEL_WITH_SESSION_ID_1 "aeron:ipc?session-id=" STR(_SESSION_ID_1)
+#define IPC_CHANNEL_WITH_SESSION_ID_2 "aeron:ipc?session-id=" STR(_SESSION_ID_2)
+
+#define SESSION_ID_1 (_SESSION_ID_1)
+#define SESSION_ID_3 (_SESSION_ID_3)
+#define SESSION_ID_4 (_SESSION_ID_4)
+#define SESSION_ID_5 (_SESSION_ID_5)
 
 #define SESSION_ID (0x5E5510)
 #define INITIAL_TERM_ID (0x3456)
@@ -113,6 +148,7 @@ static int test_malloc_map_raw_log(
     log->log_meta_data.length = AERON_LOGBUFFER_META_DATA_LENGTH;
 
     log->term_length = term_length;
+
     return 0;
 }
 
@@ -182,14 +218,16 @@ struct TestDriverConductor
 
         context.m_context->conductor_proxy = &m_conductor.conductor_proxy;
 
-        if (aeron_driver_sender_init(&m_sender, context.m_context, &m_conductor.system_counters, &m_conductor.error_log) < 0)
+        if (aeron_driver_sender_init(
+            &m_sender, context.m_context, &m_conductor.system_counters, &m_conductor.error_log) < 0)
         {
             throw std::runtime_error("could not init sender: " + std::string(aeron_errmsg()));
         }
 
         context.m_context->sender_proxy = &m_sender.sender_proxy;
 
-        if (aeron_driver_receiver_init(&m_receiver, context.m_context, &m_conductor.system_counters, &m_conductor.error_log) < 0)
+        if (aeron_driver_receiver_init(
+            &m_receiver, context.m_context, &m_conductor.system_counters, &m_conductor.error_log) < 0)
         {
             throw std::runtime_error("could not init receiver: " + std::string(aeron_errmsg()));
         }
@@ -202,6 +240,11 @@ struct TestDriverConductor
         aeron_driver_conductor_on_close(&m_conductor);
         aeron_driver_sender_on_close(&m_sender);
         aeron_driver_receiver_on_close(&m_receiver);
+    }
+
+    void manuallySetNextSessionId(int32_t nextSessionId)
+    {
+        m_conductor.next_session_id = nextSessionId;
     }
 
     aeron_driver_conductor_t m_conductor;
@@ -228,7 +271,7 @@ public:
     {
     }
 
-    size_t readAllBroadcastsFromConductor(const handler_t& func)
+    size_t readAllBroadcastsFromConductor(const handler_t &func)
     {
         size_t num_received = 0;
 
@@ -259,6 +302,20 @@ public:
         command.correlationId(correlation_id);
         command.streamId(stream_id);
         command.channel(AERON_IPC_CHANNEL);
+
+        return writeCommand(msg_type_id, command.length());
+    }
+
+    int addIpcPublicationWithChannel(
+        int64_t client_id, int64_t correlation_id, const char *channel, int32_t stream_id, bool is_exclusive)
+    {
+        int32_t msg_type_id = is_exclusive ? AERON_COMMAND_ADD_EXCLUSIVE_PUBLICATION : AERON_COMMAND_ADD_PUBLICATION;
+        command::PublicationMessageFlyweight command(m_command, 0);
+
+        command.clientId(client_id);
+        command.correlationId(correlation_id);
+        command.streamId(stream_id);
+        command.channel(channel);
 
         return writeCommand(msg_type_id, command.length());
     }
@@ -351,7 +408,12 @@ public:
     }
 
     int addCounter(
-        int64_t client_id, int64_t correlation_id, int32_t type_id, const uint8_t *key, size_t key_length, std::string& label)
+        int64_t client_id,
+        int64_t correlation_id,
+        int32_t type_id,
+        const uint8_t *key,
+        size_t key_length,
+        std::string &label)
     {
         command::CounterMessageFlyweight command(m_command, 0);
 
@@ -376,7 +438,7 @@ public:
     }
 
     template<typename F>
-    bool findCounter(int32_t counter_id, F&& func)
+    bool findCounter(int32_t counter_id, F &&func)
     {
         aeron_driver_context_t *ctx = m_context.m_context;
         AtomicBuffer metadata(
@@ -459,7 +521,8 @@ public:
         cmd.session_id = SESSION_ID;
         cmd.stream_id = stream_id;
         cmd.term_offset = 0;
-        cmd.active_term_id = aeron_logbuffer_compute_term_id_from_position(position, position_bits_to_shift, INITIAL_TERM_ID);
+        cmd.active_term_id = aeron_logbuffer_compute_term_id_from_position(
+            position, position_bits_to_shift, INITIAL_TERM_ID);
         cmd.initial_term_id = INITIAL_TERM_ID;
         cmd.mtu_length = (int32_t)m_context.m_context->mtu_length;
         cmd.term_length = TERM_LENGTH;

@@ -224,6 +224,14 @@ class ClientConductor implements Agent, DriverEventsListener
     public void onError(final long correlationId, final int codeValue, final ErrorCode errorCode, final String message)
     {
         driverException = new RegistrationException(correlationId, codeValue, errorCode, message);
+
+        final Object resource = resourceByRegIdMap.get(correlationId);
+        if (resource instanceof Subscription)
+        {
+            final Subscription subscription = (Subscription)resource;
+            subscription.internalClose();
+            resourceByRegIdMap.remove(correlationId);
+        }
     }
 
     public void onAsyncError(
@@ -436,7 +444,10 @@ class ClientConductor implements Agent, DriverEventsListener
 
     void handleError(final Throwable ex)
     {
-        ctx.errorHandler().onError(ex);
+        if (!isClosed)
+        {
+            ctx.errorHandler().onError(ex);
+        }
     }
 
     ConcurrentPublication addPublication(final String channel, final int streamId)
@@ -484,9 +495,8 @@ class ClientConductor implements Agent, DriverEventsListener
         clientLock.lock();
         try
         {
-            if (!publication.isClosed())
+            if (!publication.isClosed() && !isClosed)
             {
-                ensureActive();
                 ensureNotReentrant();
 
                 publication.internalClose();
@@ -530,7 +540,6 @@ class ClientConductor implements Agent, DriverEventsListener
                 unavailableImageHandler);
 
             resourceByRegIdMap.put(correlationId, subscription);
-
             awaitResponse(correlationId);
 
             return subscription;
@@ -546,9 +555,8 @@ class ClientConductor implements Agent, DriverEventsListener
         clientLock.lock();
         try
         {
-            if (!subscription.isClosed())
+            if (!subscription.isClosed() && !isClosed)
             {
-                ensureActive();
                 ensureNotReentrant();
 
                 subscription.internalClose();
@@ -704,6 +712,11 @@ class ClientConductor implements Agent, DriverEventsListener
         clientLock.lock();
         try
         {
+            if (isClosed)
+            {
+                return false;
+            }
+
             ensureActive();
 
             return asyncCommandIdSet.contains(correlationId);
@@ -796,8 +809,13 @@ class ClientConductor implements Agent, DriverEventsListener
         clientLock.lock();
         try
         {
-            ensureActive();
+            if (isClosed)
+            {
+                return false;
+            }
+
             ensureNotReentrant();
+
             return availableCounterHandlers.remove(handler);
         }
         finally
@@ -826,8 +844,13 @@ class ClientConductor implements Agent, DriverEventsListener
         clientLock.lock();
         try
         {
-            ensureActive();
+            if (isClosed)
+            {
+                return false;
+            }
+
             ensureNotReentrant();
+
             return unavailableCounterHandlers.remove(handler);
         }
         finally
@@ -856,8 +879,13 @@ class ClientConductor implements Agent, DriverEventsListener
         clientLock.lock();
         try
         {
-            ensureActive();
+            if (isClosed)
+            {
+                return false;
+            }
+
             ensureNotReentrant();
+
             return closeHandlers.remove(handler);
         }
         finally
@@ -871,7 +899,11 @@ class ClientConductor implements Agent, DriverEventsListener
         clientLock.lock();
         try
         {
-            ensureActive();
+            if (isClosed)
+            {
+                return;
+            }
+
             ensureNotReentrant();
 
             final long registrationId = counter.registrationId();

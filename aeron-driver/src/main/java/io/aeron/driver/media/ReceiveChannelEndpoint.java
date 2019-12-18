@@ -105,9 +105,9 @@ public class ReceiveChannelEndpoint extends UdpChannelTransport
         {
             if (null != sendDatagramChannel)
             {
-                sendHook(buffer, remoteAddress);
                 if (sendDatagramChannel.isOpen())
                 {
+                    sendHook(buffer, remoteAddress);
                     bytesSent = sendDatagramChannel.send(buffer, remoteAddress);
                 }
             }
@@ -146,7 +146,7 @@ public class ReceiveChannelEndpoint extends UdpChannelTransport
 
         if (null == multiRcvDestination)
         {
-            statusIndicator.updateLabel(statusIndicator.label() + " " + bindAddressAndPort());
+            statusIndicator.appendToLabel(bindAddressAndPort());
         }
 
         statusIndicator.setOrdered(ChannelEndpointStatus.ACTIVE);

@@ -49,6 +49,23 @@ final class ArchiveEventDissector
     private static final BoundedReplayRequestDecoder BOUNDED_REPLAY_REQUEST_DECODER = new BoundedReplayRequestDecoder();
     private static final StopAllReplaysRequestDecoder STOP_ALL_REPLAYS_REQUEST_DECODER =
         new StopAllReplaysRequestDecoder();
+    private static final ReplicateRequestDecoder REPLICATE_REQUEST_DECODER = new ReplicateRequestDecoder();
+    private static final StopReplicationRequestDecoder STOP_REPLICATION_REQUEST_DECODER =
+        new StopReplicationRequestDecoder();
+    private static final StartPositionRequestDecoder START_POSITION_REQUEST_DECODER = new StartPositionRequestDecoder();
+    private static final DetachSegmentsRequestDecoder DETACH_SEGMENTS_REQUEST_DECODER =
+        new DetachSegmentsRequestDecoder();
+    private static final DeleteDetachedSegmentsRequestDecoder DELETE_DETACHED_SEGMENTS_REQUEST_DECODER =
+        new DeleteDetachedSegmentsRequestDecoder();
+    private static final PurgeSegmentsRequestDecoder PURGE_SEGMENTS_REQUEST_DECODER = new PurgeSegmentsRequestDecoder();
+    private static final AttachSegmentsRequestDecoder ATTACH_SEGMENTS_REQUEST_DECODER =
+        new AttachSegmentsRequestDecoder();
+    private static final MigrateSegmentsRequestDecoder MIGRATE_SEGMENTS_REQUEST_DECODER =
+        new MigrateSegmentsRequestDecoder();
+    private static final AuthConnectRequestDecoder AUTH_CONNECT_REQUEST_DECODER = new AuthConnectRequestDecoder();
+    private static final KeepAliveRequestDecoder KEEP_ALIVE_REQUEST_DECODER = new KeepAliveRequestDecoder();
+    private static final TaggedReplicateRequestDecoder TAGGED_REPLICATE_REQUEST_DECODER =
+        new TaggedReplicateRequestDecoder();
 
     @SuppressWarnings("MethodLength")
     static void controlRequest(
@@ -223,6 +240,105 @@ final class ArchiveEventDissector
                 appendStopAllReplays(builder);
                 break;
 
+            case CMD_IN_REPLICATE:
+                REPLICATE_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendReplicate(builder);
+                break;
+
+            case CMD_IN_STOP_REPLICATION:
+                STOP_REPLICATION_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendStopReplication(builder);
+                break;
+
+            case CMD_IN_START_POSITION:
+                START_POSITION_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendStartPosition(builder);
+                break;
+
+            case CMD_IN_DETACH_SEGMENTS:
+                DETACH_SEGMENTS_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendDetachSegments(builder);
+                break;
+
+            case CMD_IN_DELETE_DETACHED_SEGMENTS:
+                DELETE_DETACHED_SEGMENTS_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendDeleteDetachedSegments(builder);
+                break;
+
+            case CMD_IN_PURGE_SEGMENTS:
+                PURGE_SEGMENTS_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendPurgeSegments(builder);
+                break;
+
+            case CMD_IN_ATTACH_SEGMENTS:
+                ATTACH_SEGMENTS_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendAttachSegments(builder);
+                break;
+
+            case CMD_IN_MIGRATE_SEGMENTS:
+                MIGRATE_SEGMENTS_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendMigrateSegments(builder);
+                break;
+
+            case CMD_IN_AUTH_CONNECT:
+                AUTH_CONNECT_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendAuthConnect(builder);
+                break;
+
+            case CMD_IN_KEEP_ALIVE:
+                KEEP_ALIVE_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendKeepAlive(builder);
+                break;
+
+            case CMD_IN_TAGGED_REPLICATE:
+                TAGGED_REPLICATE_REQUEST_DECODER.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    HEADER_DECODER.blockLength(),
+                    HEADER_DECODER.version());
+                appendTaggedReplicate(builder);
+                break;
+
             default:
                 builder.append("ARCHIVE: COMMAND UNKNOWN: ").append(event);
         }
@@ -237,6 +353,19 @@ final class ArchiveEventDissector
             .append(", responseChannel=");
 
         CONNECT_REQUEST_DECODER.getResponseChannel(builder);
+    }
+
+    private static void appendAuthConnect(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: AUTH_CONNECT")
+            .append(", correlationId=").append(AUTH_CONNECT_REQUEST_DECODER.correlationId())
+            .append(", responseStreamId=").append(AUTH_CONNECT_REQUEST_DECODER.responseStreamId())
+            .append(", version=").append(AUTH_CONNECT_REQUEST_DECODER.version())
+            .append(", responseChannel=");
+
+        AUTH_CONNECT_REQUEST_DECODER.getResponseChannel(builder);
+
+        builder.append(", encodedCredentialsLength=").append(AUTH_CONNECT_REQUEST_DECODER.encodedCredentialsLength());
     }
 
     private static void appendCloseSession(final StringBuilder builder)
@@ -415,5 +544,98 @@ final class ArchiveEventDissector
             .append(", controlSessionId=").append(STOP_ALL_REPLAYS_REQUEST_DECODER.controlSessionId())
             .append(", correlationId=").append(STOP_ALL_REPLAYS_REQUEST_DECODER.correlationId())
             .append(", recordingId=").append(STOP_ALL_REPLAYS_REQUEST_DECODER.recordingId());
+    }
+
+    private static void appendReplicate(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: REPLICATE")
+            .append(", controlSessionId=").append(REPLICATE_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(REPLICATE_REQUEST_DECODER.correlationId())
+            .append(", srcRecordingId=").append(REPLICATE_REQUEST_DECODER.srcRecordingId())
+            .append(", dstRecordingId=").append(REPLICATE_REQUEST_DECODER.dstRecordingId())
+            .append(", srcControlStreamId=").append(REPLICATE_REQUEST_DECODER.srcControlStreamId());
+
+        REPLICATE_REQUEST_DECODER.getSrcControlChannel(builder);
+        REPLICATE_REQUEST_DECODER.getLiveDestination(builder);
+    }
+
+    private static void appendStopReplication(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: STOP_REPLICATION")
+            .append(", controlSessionId=").append(STOP_REPLICATION_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(STOP_REPLICATION_REQUEST_DECODER.correlationId())
+            .append(", replicationId=").append(STOP_REPLICATION_REQUEST_DECODER.replicationId());
+    }
+
+    private static void appendStartPosition(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: START_POSITION")
+            .append(", controlSessionId=").append(START_POSITION_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(START_POSITION_REQUEST_DECODER.correlationId())
+            .append(", recordingId=").append(START_POSITION_REQUEST_DECODER.recordingId());
+    }
+
+    private static void appendDetachSegments(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: DETACH_SEGMENTS")
+            .append(", controlSessionId=").append(DETACH_SEGMENTS_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(DETACH_SEGMENTS_REQUEST_DECODER.correlationId())
+            .append(", recordingId=").append(DETACH_SEGMENTS_REQUEST_DECODER.recordingId());
+    }
+
+    private static void appendDeleteDetachedSegments(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: DELETE_DETACHED_SEGMENTS")
+            .append(", controlSessionId=").append(DELETE_DETACHED_SEGMENTS_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(DELETE_DETACHED_SEGMENTS_REQUEST_DECODER.correlationId())
+            .append(", recordingId=").append(DELETE_DETACHED_SEGMENTS_REQUEST_DECODER.recordingId());
+    }
+
+    private static void appendPurgeSegments(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: PURGE_SEGMENTS")
+            .append(", controlSessionId=").append(PURGE_SEGMENTS_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(PURGE_SEGMENTS_REQUEST_DECODER.correlationId())
+            .append(", recordingId=").append(PURGE_SEGMENTS_REQUEST_DECODER.recordingId())
+            .append(", newStartPosition=").append(PURGE_SEGMENTS_REQUEST_DECODER.newStartPosition());
+    }
+
+    private static void appendAttachSegments(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: ATTACH_SEGMENTS")
+            .append(", controlSessionId=").append(ATTACH_SEGMENTS_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(ATTACH_SEGMENTS_REQUEST_DECODER.correlationId())
+            .append(", recordingId=").append(ATTACH_SEGMENTS_REQUEST_DECODER.recordingId());
+    }
+
+    private static void appendMigrateSegments(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: MIGRATE_SEGMENTS")
+            .append(", controlSessionId=").append(MIGRATE_SEGMENTS_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(MIGRATE_SEGMENTS_REQUEST_DECODER.correlationId())
+            .append(", srcRecordingId=").append(MIGRATE_SEGMENTS_REQUEST_DECODER.srcRecordingId())
+            .append(", dstRecordingId=").append(MIGRATE_SEGMENTS_REQUEST_DECODER.dstRecordingId());
+    }
+
+    private static void appendKeepAlive(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: KEEP_ALIVE")
+            .append(", controlSessionId=").append(KEEP_ALIVE_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(KEEP_ALIVE_REQUEST_DECODER.correlationId());
+    }
+
+    private static void appendTaggedReplicate(final StringBuilder builder)
+    {
+        builder.append("ARCHIVE: TAGGED_REPLICATE")
+            .append(", controlSessionId=").append(TAGGED_REPLICATE_REQUEST_DECODER.controlSessionId())
+            .append(", correlationId=").append(TAGGED_REPLICATE_REQUEST_DECODER.correlationId())
+            .append(", srcRecordingId=").append(TAGGED_REPLICATE_REQUEST_DECODER.srcRecordingId())
+            .append(", dstRecordingId=").append(TAGGED_REPLICATE_REQUEST_DECODER.dstRecordingId())
+            .append(", channelTagId=").append(TAGGED_REPLICATE_REQUEST_DECODER.channelTagId())
+            .append(", subscriptionTagId=").append(TAGGED_REPLICATE_REQUEST_DECODER.subscriptionTagId())
+            .append(", srcControlStreamId=").append(TAGGED_REPLICATE_REQUEST_DECODER.srcControlStreamId());
+
+        TAGGED_REPLICATE_REQUEST_DECODER.getSrcControlChannel(builder);
+        TAGGED_REPLICATE_REQUEST_DECODER.getLiveDestination(builder);
     }
 }

@@ -20,7 +20,6 @@ import io.aeron.Publication;
 import io.aeron.Subscription;
 import io.aeron.driver.MediaDriver;
 import io.aeron.logbuffer.FragmentHandler;
-import net.bytebuddy.agent.ByteBuddyAgent;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.collections.IntHashSet;
 import org.agrona.collections.MutableInteger;
@@ -43,21 +42,20 @@ public class DriverLoggingAgentTest
     private static final String NETWORK_CHANNEL = "aeron:udp?endpoint=localhost:54325";
     private static final int STREAM_ID = 777;
 
-    static final IntHashSet MSG_ID_SET = new IntHashSet();
-    static final CountDownLatch LATCH = new CountDownLatch(1);
+    private static final IntHashSet MSG_ID_SET = new IntHashSet();
+    private static final CountDownLatch LATCH = new CountDownLatch(1);
 
     @BeforeClass
     public static void installAgent()
     {
-        System.setProperty(EventConfiguration.ENABLED_EVENT_CODES_PROP_NAME, "all");
         System.setProperty(EventLogAgent.READER_CLASSNAME_PROP_NAME, StubEventLogReaderAgent.class.getName());
+        Common.beforeAgent();
     }
 
     @AfterClass
     public static void removeAgent()
     {
-        EventLogAgent.removeTransformer();
-        System.clearProperty(EventConfiguration.ENABLED_EVENT_CODES_PROP_NAME);
+        Common.afterAfter();
     }
 
     @Test(timeout = 10_000L)
@@ -68,8 +66,6 @@ public class DriverLoggingAgentTest
 
         try (MediaDriver ignore = MediaDriver.launchEmbedded(driverCtx))
         {
-            EventLogAgent.agentmain("", ByteBuddyAgent.install());
-
             final Aeron.Context clientCtx = new Aeron.Context()
                 .aeronDirectoryName(driverCtx.aeronDirectoryName());
 
@@ -104,27 +100,27 @@ public class DriverLoggingAgentTest
         assertTrue(MSG_ID_SET.contains(DriverEventCode.CMD_OUT_AVAILABLE_IMAGE.id()));
         assertTrue(MSG_ID_SET.contains(DriverEventCode.CMD_IN_CLIENT_CLOSE.id()));
     }
-}
 
-class StubEventLogReaderAgent implements Agent, MessageHandler
-{
-    public String roleName()
+    static class StubEventLogReaderAgent implements Agent, MessageHandler
     {
-        return "event-log-reader";
-    }
-
-    public int doWork()
-    {
-        return EVENT_RING_BUFFER.read(this, EVENT_READER_FRAME_LIMIT);
-    }
-
-    public void onMessage(final int msgTypeId, final MutableDirectBuffer buffer, final int index, final int length)
-    {
-        DriverLoggingAgentTest.MSG_ID_SET.add(msgTypeId);
-
-        if (DriverEventCode.CMD_IN_CLIENT_CLOSE.id() == msgTypeId)
+        public String roleName()
         {
-            DriverLoggingAgentTest.LATCH.countDown();
+            return "event-log-reader";
+        }
+
+        public int doWork()
+        {
+            return EVENT_RING_BUFFER.read(this, EVENT_READER_FRAME_LIMIT);
+        }
+
+        public void onMessage(final int msgTypeId, final MutableDirectBuffer buffer, final int index, final int length)
+        {
+            DriverLoggingAgentTest.MSG_ID_SET.add(msgTypeId);
+
+            if (DriverEventCode.CMD_IN_CLIENT_CLOSE.id() == msgTypeId)
+            {
+                DriverLoggingAgentTest.LATCH.countDown();
+            }
         }
     }
 }

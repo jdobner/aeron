@@ -24,6 +24,7 @@ import io.aeron.archive.codecs.SourceLocation;
 import io.aeron.archive.status.RecordingPos;
 import io.aeron.logbuffer.LogBufferDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
+import io.aeron.security.Authenticator;
 import org.agrona.BitUtil;
 import org.agrona.CloseHelper;
 import org.agrona.LangUtil;
@@ -49,8 +50,8 @@ import java.util.concurrent.TimeUnit;
 import static io.aeron.Aeron.NULL_VALUE;
 import static io.aeron.CommonContext.SPY_PREFIX;
 import static io.aeron.CommonContext.UDP_MEDIA;
-import static io.aeron.archive.Archive.*;
 import static io.aeron.archive.Archive.Configuration.MAX_BLOCK_LENGTH;
+import static io.aeron.archive.Archive.segmentFileName;
 import static io.aeron.archive.client.AeronArchive.NULL_POSITION;
 import static io.aeron.archive.client.AeronArchive.segmentFileBasePosition;
 import static io.aeron.archive.client.ArchiveException.*;
@@ -99,6 +100,8 @@ abstract class ArchiveConductor
     private final Catalog catalog;
     private final ArchiveMarkFile markFile;
     private final RecordingEventsProxy recordingEventsProxy;
+    private final Authenticator authenticator;
+    private final ControlSessionProxy controlSessionProxy;
     private final long connectTimeoutMs;
     private long timeOfLastMarkFileUpdateMs;
     private long nextSessionId = ThreadLocalRandom.current().nextInt(Integer.MAX_VALUE);
@@ -143,6 +146,8 @@ abstract class ArchiveConductor
         catalog = ctx.catalog();
         markFile = ctx.archiveMarkFile();
         cachedEpochClock.update(epochClock.time());
+        authenticator = ctx.authenticatorSupplier().get();
+        controlSessionProxy = new ControlSessionProxy(controlResponseProxy);
     }
 
     public void onStart()
@@ -220,15 +225,13 @@ abstract class ArchiveConductor
             replayer.abort();
             recorder.abort();
             isAbort = true;
+
+            ctx.errorCounter().close();
             ctx.abortLatch().await(AgentRunner.RETRY_CLOSE_TIMEOUT_MS * 2L, TimeUnit.MILLISECONDS);
         }
         catch (final InterruptedException ignore)
         {
             Thread.currentThread().interrupt();
-        }
-        catch (final Exception ex)
-        {
-            errorHandler.onError(ex);
         }
     }
 
@@ -292,6 +295,7 @@ abstract class ArchiveConductor
         final int streamId,
         final int version,
         final String channel,
+        final byte[] encodedCredentials,
         final ControlSessionDemuxer demuxer)
     {
         final ChannelUri channelUri = ChannelUri.parse(channel);
@@ -319,7 +323,11 @@ abstract class ArchiveConductor
             aeron.addExclusivePublication(controlChannel, streamId),
             this,
             cachedEpochClock,
-            controlResponseProxy);
+            controlResponseProxy,
+            authenticator,
+            controlSessionProxy);
+
+        authenticator.onConnectRequest(controlSession.sessionId(), encodedCredentials, cachedEpochClock.time());
 
         addSession(controlSession);
 
@@ -710,6 +718,15 @@ abstract class ArchiveConductor
             return null;
         }
 
+        catalog.recordingSummary(recordingId, recordingSummary);
+        if (streamId != recordingSummary.streamId)
+        {
+            final String msg = "cannot extend recording  " + recordingSummary.recordingId +
+                " with streamId " + streamId + " != existing streamId " + recordingSummary.streamId;
+            controlSession.sendErrorResponse(correlationId, UNKNOWN_RECORDING, msg, controlResponseProxy);
+            return null;
+        }
+
         if (recordingSessionByIdMap.containsKey(recordingId))
         {
             final String msg = "cannot extend active recording for " + recordingId;
@@ -872,26 +889,36 @@ abstract class ArchiveConductor
     void closeRecordingSession(final RecordingSession session)
     {
         final long recordingId = session.sessionId();
+        recordingSessionByIdMap.remove(recordingId);
+
         if (!isAbort)
         {
             catalog.recordingStopped(recordingId, session.recordedPosition(), epochClock.time());
 
-            session.controlSession().attemptSendSignal(
+            session.controlSession().attemptSignal(
                 session.correlationId(),
                 recordingId,
                 session.image().subscription().registrationId(),
                 session.recordedPosition(),
                 RecordingSignal.STOP);
-        }
 
-        recordingSessionByIdMap.remove(recordingId);
-        closeSession(session);
+            closeSession(session);
+        }
+        else
+        {
+            session.abortClose();
+        }
     }
 
     void closeReplaySession(final ReplaySession session)
     {
         replaySessionByIdMap.remove(session.sessionId());
-        session.sendPendingError(controlResponseProxy);
+
+        if (!isAbort)
+        {
+            session.sendPendingError(controlResponseProxy);
+        }
+
         closeSession(session);
     }
 
@@ -899,6 +926,8 @@ abstract class ArchiveConductor
         final long correlationId,
         final long srcRecordingId,
         final long dstRecordingId,
+        final long channelTagId,
+        final long subscriptionTagId,
         final int srcControlStreamId,
         final String srcControlChannel,
         final String liveDestination,
@@ -926,6 +955,8 @@ abstract class ArchiveConductor
             correlationId,
             srcRecordingId,
             dstRecordingId,
+            channelTagId,
+            subscriptionTagId,
             replicationId,
             liveDestination,
             ctx.replicationChannel(),
@@ -1366,7 +1397,7 @@ abstract class ArchiveConductor
         recordingSessionByIdMap.put(recordingId, session);
         recorder.addSession(session);
 
-        controlSession.attemptSendSignal(
+        controlSession.attemptSignal(
             correlationId,
             recordingId,
             image.subscription().registrationId(),
@@ -1420,7 +1451,7 @@ abstract class ArchiveConductor
         catalog.extendRecording(recordingId, controlSession.sessionId(), correlationId, image.sessionId());
         recorder.addSession(session);
 
-        controlSession.attemptSendSignal(
+        controlSession.attemptSignal(
             correlationId,
             recordingId,
             image.subscription().registrationId(),
@@ -1470,7 +1501,15 @@ abstract class ArchiveConductor
             final String msg = "cannot extend recording " + recordingSummary.recordingId +
                 " image joinPosition " + image.joinPosition() +
                 " not equal to recording stopPosition " + recordingSummary.stopPosition;
+            controlSession.attemptErrorResponse(correlationId, INVALID_EXTENSION, msg, controlResponseProxy);
+            throw new ArchiveException(msg);
+        }
 
+        if (image.initialTermId() != recordingSummary.initialTermId)
+        {
+            final String msg = "cannot extend recording " + recordingSummary.recordingId +
+                " image initialTermId " + image.initialTermId() +
+                " not equal to recording initialTermId " + recordingSummary.initialTermId;
             controlSession.attemptErrorResponse(correlationId, INVALID_EXTENSION, msg, controlResponseProxy);
             throw new ArchiveException(msg);
         }
@@ -1480,7 +1519,6 @@ abstract class ArchiveConductor
             final String msg = "cannot extend recording " + recordingSummary.recordingId +
                 " image termBufferLength " + image.termBufferLength() +
                 " not equal to recording termBufferLength " + recordingSummary.termBufferLength;
-
             controlSession.attemptErrorResponse(correlationId, INVALID_EXTENSION, msg, controlResponseProxy);
             throw new ArchiveException(msg);
         }
@@ -1490,7 +1528,6 @@ abstract class ArchiveConductor
             final String msg = "cannot extend recording " + recordingSummary.recordingId +
                 " image mtuLength " + image.mtuLength() +
                 " not equal to recording mtuLength " + recordingSummary.mtuLength;
-
             controlSession.attemptErrorResponse(correlationId, INVALID_EXTENSION, msg, controlResponseProxy);
             throw new ArchiveException(msg);
         }

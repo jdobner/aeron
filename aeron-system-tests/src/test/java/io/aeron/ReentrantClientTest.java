@@ -17,6 +17,7 @@ package io.aeron;
 
 import io.aeron.driver.MediaDriver;
 import io.aeron.exceptions.AeronException;
+import io.aeron.test.TestMediaDriver;
 import org.agrona.CloseHelper;
 import org.agrona.ErrorHandler;
 import org.agrona.collections.MutableReference;
@@ -25,11 +26,15 @@ import org.junit.Test;
 
 import static org.hamcrest.Matchers.instanceOf;
 import static org.junit.Assert.assertThat;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 
 public class ReentrantClientTest
 {
-    final MediaDriver mediaDriver = MediaDriver.launch(new MediaDriver.Context()
+    private final TestMediaDriver mediaDriver = TestMediaDriver.launch(new MediaDriver.Context()
         .dirDeleteOnShutdown(true)
         .dirDeleteOnStart(true));
 
@@ -55,7 +60,7 @@ public class ReentrantClientTest
             final Subscription sub = aeron.addSubscription(channel, 1, mockHandler, null);
             final Publication pub = aeron.addPublication(channel, 1);
 
-            verify(mockHandler, timeout(5000)).onAvailableImage(any(Image.class));
+            verify(mockHandler, timeout(5000L)).onAvailableImage(any(Image.class));
 
             pub.close();
             sub.close();

@@ -35,7 +35,6 @@ import java.io.File;
 import java.nio.file.Paths;
 import java.util.concurrent.CountDownLatch;
 
-import net.bytebuddy.agent.ByteBuddyAgent;
 import org.agrona.CloseHelper;
 import org.agrona.IoUtil;
 import org.agrona.MutableDirectBuffer;
@@ -54,17 +53,14 @@ public class ClusterLoggingAgentTest
     @Before
     public void before()
     {
-        System.setProperty(EventConfiguration.ENABLED_CLUSTER_EVENT_CODES_PROP_NAME, "all");
         System.setProperty(EventLogAgent.READER_CLASSNAME_PROP_NAME, StubEventLogReaderAgent.class.getName());
-        EventLogAgent.agentmain("", ByteBuddyAgent.install());
+        Common.beforeAgent();
     }
 
     @After
     public void after()
     {
-        EventLogAgent.removeTransformer();
-        System.clearProperty(EventConfiguration.ENABLED_CLUSTER_EVENT_CODES_PROP_NAME);
-        System.clearProperty(EventLogAgent.READER_CLASSNAME_PROP_NAME);
+        Common.afterAfter();
 
         CloseHelper.close(clusteredServiceContainer);
         CloseHelper.close(clusteredMediaDriver);
@@ -132,7 +128,7 @@ public class ClusterLoggingAgentTest
         LATCH.await();
     }
 
-    public static class StubEventLogReaderAgent implements Agent, MessageHandler
+    static class StubEventLogReaderAgent implements Agent, MessageHandler
     {
         public String roleName()
         {
@@ -154,8 +150,7 @@ public class ClusterLoggingAgentTest
                     LATCH.countDown();
                 }
             }
-
-            if (ClusterEventLogger.toEventCodeId(ClusterEventCode.STATE_CHANGE) == msgTypeId)
+            else if (ClusterEventLogger.toEventCodeId(ClusterEventCode.STATE_CHANGE) == msgTypeId)
             {
                 final String stateChange = buffer.getStringAscii(index + SIZE_OF_INT);
                 if (stateChange.contains("ACTIVE"))
@@ -163,8 +158,7 @@ public class ClusterLoggingAgentTest
                     LATCH.countDown();
                 }
             }
-
-            if (ClusterEventLogger.toEventCodeId(ClusterEventCode.ELECTION_STATE_CHANGE) == msgTypeId)
+            else if (ClusterEventLogger.toEventCodeId(ClusterEventCode.ELECTION_STATE_CHANGE) == msgTypeId)
             {
                 final String stateChange = buffer.getStringAscii(index + SIZE_OF_INT);
                 if (stateChange.contains("CLOSE"))

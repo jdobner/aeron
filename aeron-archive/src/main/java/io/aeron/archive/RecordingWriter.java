@@ -16,7 +16,6 @@
 package io.aeron.archive;
 
 import io.aeron.Image;
-import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.client.ArchiveException;
 import io.aeron.logbuffer.BlockHandler;
 import io.aeron.protocol.DataHeaderFlyweight;
@@ -31,6 +30,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.FileChannel;
 
+import static io.aeron.archive.client.AeronArchive.segmentFileBasePosition;
 import static io.aeron.logbuffer.FrameDescriptor.PADDING_FRAME_TYPE;
 import static io.aeron.logbuffer.FrameDescriptor.typeOffset;
 
@@ -54,7 +54,7 @@ class RecordingWriter implements BlockHandler
     private final FileChannel archiveDirChannel;
     private final File archiveDir;
 
-    private long segmentPosition;
+    private long segmentBasePosition;
     private int segmentOffset;
     private FileChannel recordingFileChannel;
 
@@ -76,11 +76,11 @@ class RecordingWriter implements BlockHandler
         forceWrites = ctx.fileSyncLevel() > 0;
         forceMetadata = ctx.fileSyncLevel() > 1;
 
+        final int termLength = image.termBufferLength();
         final long joinPosition = image.joinPosition();
-        final long startTermBasePosition = startPosition - (startPosition & (image.termBufferLength() - 1));
-        segmentOffset = (int)(joinPosition - startTermBasePosition) & (segmentLength - 1);
-        segmentPosition = AeronArchive.segmentFileBasePosition(
-            startPosition, joinPosition, image.termBufferLength(), segmentLength);
+        final long startTermBasePosition = startPosition - (startPosition & (termLength - 1));
+        segmentOffset = (int)((joinPosition - startTermBasePosition) & (segmentLength - 1));
+        segmentBasePosition = segmentFileBasePosition(startPosition, joinPosition, termLength, segmentLength);
     }
 
     public void onBlock(
@@ -152,7 +152,7 @@ class RecordingWriter implements BlockHandler
 
     private void openRecordingSegmentFile()
     {
-        final File file = new File(archiveDir, Archive.segmentFileName(recordingId, segmentPosition));
+        final File file = new File(archiveDir, Archive.segmentFileName(recordingId, segmentBasePosition));
 
         RandomAccessFile recordingFile = null;
         try
@@ -177,7 +177,7 @@ class RecordingWriter implements BlockHandler
     {
         CloseHelper.close(recordingFileChannel);
         segmentOffset = 0;
-        segmentPosition += segmentLength;
+        segmentBasePosition += segmentLength;
 
         openRecordingSegmentFile();
     }

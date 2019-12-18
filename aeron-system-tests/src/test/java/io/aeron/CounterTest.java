@@ -18,14 +18,15 @@ package io.aeron;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.status.ReadableCounter;
+import io.aeron.test.TestMediaDriver;
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.concurrent.status.CountersReader;
 import org.junit.After;
 import org.junit.Test;
 
-import static org.hamcrest.Matchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertFalse;
 import static org.mockito.Mockito.*;
 
@@ -38,7 +39,7 @@ public class CounterTest
 
     private Aeron clientA;
     private Aeron clientB;
-    private MediaDriver driver;
+    private TestMediaDriver driver;
 
     private final AvailableCounterHandler availableCounterHandlerClientA = mock(AvailableCounterHandler.class);
     private final UnavailableCounterHandler unavailableCounterHandlerClientA = mock(UnavailableCounterHandler.class);
@@ -51,7 +52,7 @@ public class CounterTest
     {
         labelBuffer.putStringWithoutLengthAscii(0, COUNTER_LABEL);
 
-        driver = MediaDriver.launch(
+        driver = TestMediaDriver.launch(
             new MediaDriver.Context()
                 .dirDeleteOnShutdown(true)
                 .errorHandler(Throwable::printStackTrace)
@@ -77,7 +78,7 @@ public class CounterTest
         CloseHelper.close(driver);
     }
 
-    @Test(timeout = 2000)
+    @Test(timeout = 10_000)
     public void shouldBeAbleToAddCounter()
     {
         launch();
@@ -93,13 +94,13 @@ public class CounterTest
 
         assertFalse(counter.isClosed());
 
-        verify(availableCounterHandlerClientA, timeout(1000))
+        verify(availableCounterHandlerClientA, timeout(5000L))
             .onAvailableCounter(any(CountersReader.class), eq(counter.registrationId()), eq(counter.id()));
-        verify(availableCounterHandlerClientB, timeout(1000))
+        verify(availableCounterHandlerClientB, timeout(5000L))
             .onAvailableCounter(any(CountersReader.class), eq(counter.registrationId()), eq(counter.id()));
     }
 
-    @Test(timeout = 2000)
+    @Test(timeout = 10_000)
     public void shouldBeAbleToAddReadableCounterWithinHandler()
     {
         availableCounterHandlerClientB = this::createReadableCounter;
@@ -126,7 +127,7 @@ public class CounterTest
         assertThat(readableCounter.registrationId(), is(counter.registrationId()));
     }
 
-    @Test(timeout = 2000)
+    @Test(timeout = 10_000)
     public void shouldCloseReadableCounterOnUnavailableCounter()
     {
         availableCounterHandlerClientB = this::createReadableCounter;

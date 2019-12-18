@@ -62,7 +62,7 @@ typedef aeron_rb_handler_t aeron_driver_conductor_to_driver_interceptor_func_t;
 typedef void (*aeron_driver_conductor_to_client_interceptor_func_t)(
     aeron_driver_conductor_t *conductor, int32_t msg_type_id, const void *message, size_t length);
 
-#define AERON_THREADING_MODE_IS_SHARED_OR_INVOKER(m) (AERON_THREADING_MODE_SHARED == m || AERON_THREADING_MODE_INVOKER)
+#define AERON_THREADING_MODE_IS_SHARED_OR_INVOKER(m) (AERON_THREADING_MODE_SHARED == m || AERON_THREADING_MODE_INVOKER == m)
 
 typedef struct aeron_driver_context_stct
 {
@@ -71,7 +71,7 @@ typedef struct aeron_driver_context_stct
     aeron_inferable_boolean_t receiver_group_consideration; /* aeron.receiver.group.consideration = INFER */
     bool dirs_delete_on_start;                              /* aeron.dir.delete.on.start = false */
     bool dirs_delete_on_shutdown;                           /* aeron.dir.delete.on.shutdown = false */
-    bool warn_if_dirs_exist;                                /* aeron.dir.warn.if.exists = true */
+    bool warn_if_dirs_exist;                                /* aeron.dir.warn.if.exists = false */
     bool term_buffer_sparse_file;                           /* aeron.term.buffer.sparse.file = false */
     bool perform_storage_checks;                            /* aeron.perform.storage.checks = true */
     bool spies_simulate_connection;                         /* aeron.spies.simulate.connection = false */
@@ -111,6 +111,8 @@ typedef struct aeron_driver_context_stct
     size_t loss_report_length;                              /* aeron.loss.report.buffer.length = 1MB */
     size_t file_page_size;                                  /* aeron.file.page.size = 4KB */
     size_t nak_multicast_group_size;                        /* aeron.nak.multicast.group.size = 10 */
+    int32_t publication_reserved_session_id_low;            /* aeron.publication.reserved.session.id.low = -1 */
+    int32_t publication_reserved_session_id_high;           /* aeron.publication.reserved.session.id.high = 10000 */
     uint8_t multicast_ttl;                                  /* aeron.socket.multicast.ttl = 0 */
 
     aeron_mapped_file_t cnc_map;

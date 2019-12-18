@@ -159,6 +159,7 @@ int64_t aeron_epoch_clock()
 }
 
 extern int aeron_number_of_trailing_zeroes(int32_t value);
+extern int aeron_number_of_trailing_zeroes_u64(uint64_t value);
 extern int aeron_number_of_leading_zeroes(int32_t value);
 extern int32_t aeron_find_next_power_of_two(int32_t value);
 
@@ -690,6 +691,18 @@ void aeron_driver_context_print_configuration(aeron_driver_context_t *context)
         (void *)context->termination_hook_func,
         aeron_dlinfo((const void *)context->termination_hook_func, buffer, sizeof(buffer)));
     fprintf(fpout, "\n    termination_hook_state=%p", context->termination_hook_state);
+
+    const aeron_udp_channel_transport_bindings_t *bindings = context->udp_channel_transport_bindings;
+    while (NULL != bindings)
+    {
+        fprintf(
+            fpout, "\n    udp_channel_transport_bindings.%s=%s,%p%s",
+            bindings->meta_info.type, bindings->meta_info.name,
+            bindings->meta_info.source_symbol, aeron_dlinfo(bindings->meta_info.source_symbol, buffer, sizeof(buffer)));
+
+        bindings = bindings->meta_info.next_binding;
+    }
+
 
 #pragma GCC diagnostic pop
 

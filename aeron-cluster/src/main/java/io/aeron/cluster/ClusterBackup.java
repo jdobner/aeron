@@ -43,7 +43,6 @@ import java.util.function.Supplier;
 
 import static io.aeron.CommonContext.ENDPOINT_PARAM_NAME;
 import static io.aeron.cluster.ConsensusModule.Configuration.SERVICE_ID;
-import static io.aeron.driver.status.SystemCounterDescriptor.SYSTEM_COUNTER_TYPE_ID;
 import static java.util.concurrent.atomic.AtomicIntegerFieldUpdater.newUpdater;
 import static org.agrona.SystemUtil.getDurationInNanos;
 
@@ -55,27 +54,33 @@ public final class ClusterBackup implements AutoCloseable
     /**
      * The type id of the {@link Counter} used for the backup state.
      */
-    static final int BACKUP_STATE_TYPE_ID = 208;
+    public static final int BACKUP_STATE_TYPE_ID = 208;
 
     /**
      * The type id of the {@link Counter} used for the live log position counter.
      */
-    static final int LIVE_LOG_POSITION_TYPE_ID = 209;
+    public static final int LIVE_LOG_POSITION_TYPE_ID = 209;
 
     /**
      * The type id of the {@link Counter} used for the next query deadline counter.
      */
-    static final int QUERY_DEADLINE_TYPE_ID = 210;
+    public static final int QUERY_DEADLINE_TYPE_ID = 210;
+
+    /**
+     * The type id of the {@link Counter} used for keeping track of the number of errors that have occurred.
+     */
+    public static final int CLUSTER_BACKUP_ERROR_COUNT_TYPE_ID = 211;
 
     enum State
     {
         INIT(0),
         BACKUP_QUERY(1),
-        SNAPSHOT_RETRIEVE(2),
-        LIVE_LOG_REPLAY(3),
-        UPDATE_RECORDING_LOG(4),
-        RESET_BACKUP(5),
-        BACKING_UP(6);
+        SNAPSHOT_LENGTH_RETRIEVE(2),
+        SNAPSHOT_RETRIEVE(3),
+        LIVE_LOG_REPLAY(4),
+        UPDATE_RECORDING_LOG(5),
+        RESET_BACKUP(6),
+        BACKING_UP(7);
 
         static final State[] STATES;
 
@@ -321,6 +326,7 @@ public final class ClusterBackup implements AutoCloseable
         private String memberStatusChannel = Configuration.MEMBER_STATUS_CHANNEL_DEFAULT;
         private int memberStatusStreamId = ConsensusModule.Configuration.memberStatusStreamId();
         private int replayStreamId = ClusteredServiceContainer.Configuration.replayStreamId();
+        private int logStreamId = ConsensusModule.Configuration.logStreamId();
         private String transferEndpoint = Configuration.TRANSFER_ENDPOINT_DEFAULT;
 
         private long clusterBackupIntervalNs = Configuration.clusterBackupIntervalNs();
@@ -393,7 +399,7 @@ public final class ClusterBackup implements AutoCloseable
 
             if (null == epochClock)
             {
-                epochClock = new SystemEpochClock();
+                epochClock = SystemEpochClock.INSTANCE;
             }
 
             if (null == markFile)
@@ -430,7 +436,7 @@ public final class ClusterBackup implements AutoCloseable
 
                 if (null == errorCounter)
                 {
-                    errorCounter = aeron.addCounter(SYSTEM_COUNTER_TYPE_ID, "ClusterBackup errors");
+                    errorCounter = aeron.addCounter(CLUSTER_BACKUP_ERROR_COUNT_TYPE_ID, "ClusterBackup errors");
                 }
             }
 
@@ -854,7 +860,7 @@ public final class ClusterBackup implements AutoCloseable
         }
 
         /**
-         * Set the stream id for the cluster log and snapshot replay channel.
+         * Set the stream id for the cluster snapshot replay channel.
          *
          * @param streamId for the cluster log replay channel.
          * @return this for a fluent API
@@ -867,14 +873,38 @@ public final class ClusterBackup implements AutoCloseable
         }
 
         /**
-         * Get the stream id for the cluster log and snapshot replay channel.
+         * Get the stream id for the cluster  snapshot replay channel.
          *
-         * @return the stream id for the cluster log replay channel.
+         * @return the stream id for the cluster snapshot replay channel.
          * @see io.aeron.cluster.service.ClusteredServiceContainer.Configuration#REPLAY_STREAM_ID_PROP_NAME
          */
         public int replayStreamId()
         {
             return replayStreamId;
+        }
+
+        /**
+         * Set the stream id for the cluster log channel.
+         *
+         * @param streamId for the cluster log channel.
+         * @return this for a fluent API
+         * @see ConsensusModule.Configuration#LOG_STREAM_ID_PROP_NAME
+         */
+        public Context logStreamId(final int streamId)
+        {
+            logStreamId = streamId;
+            return this;
+        }
+
+        /**
+         * Get the stream id for the cluster log channel.
+         *
+         * @return the stream id for the cluster log channel.
+         * @see ConsensusModule.Configuration#LOG_STREAM_ID_PROP_NAME
+         */
+        public int logStreamId()
+        {
+            return logStreamId;
         }
 
         /**

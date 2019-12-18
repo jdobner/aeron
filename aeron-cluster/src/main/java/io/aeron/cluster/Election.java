@@ -161,11 +161,6 @@ public class Election implements AutoCloseable
         CloseHelper.close(stateCounter);
     }
 
-    public State state()
-    {
-        return state;
-    }
-
     public ClusterMember leader()
     {
         return leaderMember;
@@ -176,19 +171,9 @@ public class Election implements AutoCloseable
         return leadershipTermId;
     }
 
-    public long candidateTermId()
-    {
-        return candidateTermId;
-    }
-
     public long logPosition()
     {
         return logPosition;
-    }
-
-    void logSessionId(final int logSessionId)
-    {
-        this.logSessionId = logSessionId;
     }
 
     int doWork(final long nowNs)
@@ -303,6 +288,11 @@ public class Election implements AutoCloseable
     void onRequestVote(
         final long logLeadershipTermId, final long logPosition, final long candidateTermId, final int candidateId)
     {
+        if (isPassiveMember())
+        {
+            return;
+        }
+
         if (candidateTermId <= leadershipTermId || candidateTermId <= this.candidateTermId)
         {
             placeVote(candidateTermId, candidateId, false);
@@ -480,7 +470,7 @@ public class Election implements AutoCloseable
 
         candidateTermId = Math.max(ctx.clusterMarkFile().candidateTermId(), leadershipTermId);
 
-        if (clusterMembers.length == 1)
+        if (clusterMembers.length == 1 && thisMember == clusterMembers[0])
         {
             candidateTermId = Math.max(leadershipTermId + 1, candidateTermId + 1);
             leaderMember = thisMember;
@@ -513,7 +503,7 @@ public class Election implements AutoCloseable
             workCount += 1;
         }
 
-        if (ctx.appointedLeaderId() != NULL_VALUE && ctx.appointedLeaderId() != thisMember.id())
+        if (isPassiveMember() || (ctx.appointedLeaderId() != NULL_VALUE && ctx.appointedLeaderId() != thisMember.id()))
         {
             return workCount;
         }
@@ -918,6 +908,7 @@ public class Election implements AutoCloseable
         channelUri.put(CommonContext.MDC_CONTROL_MODE_PARAM_NAME, CommonContext.MDC_CONTROL_MODE_MANUAL);
         channelUri.put(CommonContext.SESSION_ID_PARAM_NAME, Integer.toString(sessionId));
         channelUri.put(CommonContext.TAGS_PARAM_NAME, tags);
+        channelUri.put(CommonContext.ALIAS_PARAM_NAME, "log");
 
         return channelUri;
     }
@@ -993,9 +984,14 @@ public class Election implements AutoCloseable
         }
     }
 
+    private boolean isPassiveMember()
+    {
+        return null == ClusterMember.findMember(clusterMembers, thisMember.id());
+    }
+
     @SuppressWarnings("unused")
     void stateChange(final State oldState, final State newState, final int memberId)
     {
-        //System.out.println("memberId=" + memberId + " " + oldState + " -> " + newState);
+        //System.out.println("Election: memberId=" + memberId + " " + oldState + " -> " + newState);
     }
 }

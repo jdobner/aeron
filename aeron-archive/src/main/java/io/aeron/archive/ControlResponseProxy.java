@@ -44,6 +44,7 @@ class ControlResponseProxy
     private final RecordingSubscriptionDescriptorEncoder recordingSubscriptionDescriptorEncoder =
         new RecordingSubscriptionDescriptorEncoder();
     private final RecordingSignalEventEncoder recordingSignalEventEncoder = new RecordingSignalEventEncoder();
+    private final ChallengeEncoder challengeEncoder = new ChallengeEncoder();
 
     int sendDescriptor(
         final long controlSessionId,
@@ -120,6 +121,21 @@ class ControlResponseProxy
             .errorMessage(errorMessage);
 
         return send(session, buffer, MESSAGE_HEADER_LENGTH + responseEncoder.encodedLength());
+    }
+
+    boolean sendChallenge(
+        final long controlSessionId,
+        final long correlationId,
+        final byte[] encodedChallenge,
+        final ControlSession session)
+    {
+        challengeEncoder
+            .wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
+            .controlSessionId(controlSessionId)
+            .correlationId(correlationId)
+            .putEncodedChallenge(encodedChallenge, 0, encodedChallenge.length);
+
+        return send(session, buffer, MESSAGE_HEADER_LENGTH + challengeEncoder.encodedLength());
     }
 
     void attemptErrorResponse(

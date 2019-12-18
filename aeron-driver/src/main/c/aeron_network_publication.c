@@ -60,14 +60,7 @@ int aeron_network_publication_create(
     aeron_system_counters_t *system_counters)
 {
     char path[AERON_MAX_PATH];
-    int path_length = aeron_network_publication_location(
-        path,
-        sizeof(path),
-        context->aeron_dir,
-        endpoint->conductor_fields.udp_channel->canonical_form,
-        session_id,
-        stream_id,
-        registration_id);
+    int path_length = aeron_network_publication_location(path, sizeof(path), context->aeron_dir, registration_id);
 
     aeron_network_publication_t *_pub = NULL;
     const uint64_t usable_fs_space = context->usable_fs_space_func(context->aeron_dir);
@@ -593,15 +586,17 @@ void aeron_network_publication_on_nak(
         publication);
 }
 
-inline static void update_connected_status(aeron_network_publication_t *publication, bool expected_status)
+inline static void aeron_network_publication_update_connected_status(
+    aeron_network_publication_t *publication,
+    bool expected_status)
 {
     bool is_connected;
     AERON_GET_VOLATILE(is_connected, publication->is_connected);
 
     if (is_connected != expected_status)
     {
-        AERON_PUT_ORDERED(publication->log_meta_data->is_connected, true);
-        AERON_PUT_ORDERED(publication->is_connected, true);
+        AERON_PUT_ORDERED(publication->log_meta_data->is_connected, expected_status);
+        AERON_PUT_ORDERED(publication->is_connected, expected_status);
     }
 }
 
@@ -609,7 +604,6 @@ void aeron_network_publication_on_status_message(
     aeron_network_publication_t *publication, const uint8_t *buffer, size_t length, struct sockaddr_storage *addr)
 {
     const int64_t time_ns = publication->nano_clock();
-
     publication->status_message_deadline_ns = time_ns + publication->connection_timeout_ns;
 
     if (!publication->has_receivers)
@@ -617,7 +611,7 @@ void aeron_network_publication_on_status_message(
         AERON_PUT_ORDERED(publication->has_receivers, true);
     }
 
-    update_connected_status(publication, true);
+    aeron_network_publication_update_connected_status(publication, true);
 
     aeron_counter_set_ordered(
         publication->snd_lmt_position.value_addr,
@@ -738,7 +732,9 @@ int aeron_network_publication_update_pub_lmt(aeron_network_publication_t *public
     }
     else if (*publication->pub_lmt_position.value_addr > snd_pos)
     {
+        size_t term_length = publication->term_length_mask + 1;
         aeron_counter_set_ordered(publication->pub_lmt_position.value_addr, snd_pos);
+        aeron_network_publication_clean_buffer(publication, snd_pos - term_length);
         work_count = 1;
     }
 
@@ -911,7 +907,7 @@ void aeron_network_publication_on_time_event(
         has_receivers ||
         (publication->spies_simulate_connection && publication->conductor_fields.subscribable.length > 0);
 
-    update_connected_status(publication, current_connected_status);
+    aeron_network_publication_update_connected_status(publication, current_connected_status);
 
     int64_t producer_position = aeron_network_publication_producer_position(publication);
 

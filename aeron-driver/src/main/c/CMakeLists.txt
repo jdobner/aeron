@@ -52,6 +52,7 @@ endif()
 
 if(MSVC AND "${CMAKE_SYSTEM_NAME}" MATCHES "Windows")
     set(AERON_LIB_WINSOCK_LIBS wsock32 ws2_32 Iphlpapi)	
+    set(WSAPOLL_PROTOTYPE_EXISTS True)
 endif()
 
 check_symbol_exists(uuid_generate "uuid/uuid.h" UUID_GENERATE_PROTOTYPE_EXISTS)
@@ -85,6 +86,14 @@ endif()
 
 if(EPOLL_PROTOTYPE_EXISTS)
     add_definitions(-DHAVE_EPOLL)
+endif()
+
+if(WSAPOLL_PROTOTYPE_EXISTS)
+    add_definitions(-DHAVE_WSAPOLL)
+endif()
+
+if (NOT POLL_PROTOTYPE_EXISTS AND NOT EPOLL_PROTOTYPE_EXISTS AND NOT WSAPOLL_PROTOTYPE_EXISTS)
+  message(FATAL_ERROR "Unsupported configuration: neither POLL nor EPOLL nor WSAPoll found" )
 endif()
 
 if(STRUCT_MMSGHDR_TYPE_EXISTS)
@@ -124,6 +133,7 @@ SET(SOURCE
     util/aeron_fileutil.c
     util/aeron_arrayutil.c
     util/aeron_error.c
+    util/aeron_math.c
     util/aeron_netutil.c
     util/aeron_dlopen.c
     util/aeron_parse_util.c
@@ -160,9 +170,11 @@ SET(SOURCE
     media/aeron_receive_channel_endpoint.c
     media/aeron_udp_destination_tracker.c
     media/aeron_udp_channel_transport_bindings.c
+    media/aeron_udp_channel_transport_loss.c
     uri/aeron_uri.c
     collections/aeron_int64_to_ptr_hash_map.c
     collections/aeron_str_to_ptr_hash_map.c
+    collections/aeron_bit_set.c
     reports/aeron_loss_reporter.c)
 
 SET(HEADERS
@@ -170,6 +182,7 @@ SET(HEADERS
     util/aeron_dlopen.h
     util/aeron_platform.h
     util/aeron_bitutil.h
+    util/aeron_math.h
     util/aeron_strutil.h
     util/aeron_fileutil.h
     util/aeron_arrayutil.h
@@ -231,9 +244,11 @@ SET(HEADERS
     media/aeron_receive_channel_endpoint.h
     media/aeron_udp_destination_tracker.h
     media/aeron_udp_channel_transport_bindings.h
+    media/aeron_udp_channel_transport_loss.h
     uri/aeron_uri.h
     collections/aeron_int64_to_ptr_hash_map.h
     collections/aeron_str_to_ptr_hash_map.h
+    collections/aeron_bit_set.h
     reports/aeron_loss_reporter.h)
 
 set(AGENT_SOURCE

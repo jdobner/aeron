@@ -17,15 +17,18 @@ package io.aeron.archive;
 
 import io.aeron.Aeron;
 import io.aeron.CommonContext;
+import io.aeron.Counter;
 import io.aeron.Image;
 import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.client.ArchiveException;
 import io.aeron.exceptions.ConcurrentConcludeException;
-import org.agrona.BitUtil;
-import org.agrona.CloseHelper;
-import org.agrona.ErrorHandler;
-import org.agrona.IoUtil;
+import io.aeron.exceptions.ConfigurationException;
+import io.aeron.security.Authenticator;
+import io.aeron.security.AuthenticatorSupplier;
+import org.agrona.*;
 import org.agrona.concurrent.*;
+import org.agrona.concurrent.errors.DistinctErrorLog;
+import org.agrona.concurrent.errors.LoggingErrorHandler;
 import org.agrona.concurrent.status.AtomicCounter;
 import org.agrona.concurrent.status.StatusIndicator;
 
@@ -40,7 +43,6 @@ import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.Supplier;
 
 import static io.aeron.archive.ArchiveThreadingMode.DEDICATED;
-import static io.aeron.driver.status.SystemCounterDescriptor.SYSTEM_COUNTER_TYPE_ID;
 import static io.aeron.logbuffer.LogBufferDescriptor.TERM_MAX_LENGTH;
 import static io.aeron.logbuffer.LogBufferDescriptor.TERM_MIN_LENGTH;
 import static java.lang.System.getProperty;
@@ -165,6 +167,21 @@ public class Archive implements AutoCloseable
     public static class Configuration
     {
         /**
+         * Filename for the single instance of a {@link Catalog} contents for an archive.
+         */
+        static final String CATALOG_FILE_NAME = "archive.catalog";
+
+        /**
+         * Recording segment file suffix extension.
+         */
+        static final String RECORDING_SEGMENT_SUFFIX = ".rec";
+
+        /**
+         * Maximum block length of data read from disk in a single operation during a replay.
+         */
+        static final int MAX_BLOCK_LENGTH = 2 * 1024 * 1024;
+
+        /**
          * Directory in which the archive stores it files such as the catalog and recordings.
          */
         public static final String ARCHIVE_DIR_PROP_NAME = "aeron.archive.dir";
@@ -204,7 +221,7 @@ public class Archive implements AutoCloseable
         public static final int FILE_SYNC_LEVEL_DEFAULT = 0;
 
         /**
-         * The level at which catalog updates should be sync'ed to disk.
+         * The level at which catalog updates and directory should be sync'ed to disk.
          * <ul>
          * <li>0 - normal writes.</li>
          * <li>1 - sync file data.</li>
@@ -327,19 +344,30 @@ public class Archive implements AutoCloseable
         public static final String REPLICATION_CHANNEL_DEFAULT = "aeron:udp?endpoint=localhost:8040";
 
         /**
-         * Filename for the single instance of a {@link Catalog} contents for an archive.
+         * Name of class to use as a supplier of {@link Authenticator} for the archive.
          */
-        static final String CATALOG_FILE_NAME = "archive.catalog";
+        public static final String AUTHENTICATOR_SUPPLIER_PROP_NAME = "aeron.archive.authenticator.supplier";
 
         /**
-         * Recording segment file suffix extension.
+         * Name of the class to use as a supplier of {@link Authenticator} for the archive. Default is
+         * a non-authenticating option.
          */
-        static final String RECORDING_SEGMENT_SUFFIX = ".rec";
+        public static final String AUTHENTICATOR_SUPPLIER_DEFAULT = "io.aeron.security.DefaultAuthenticatorSupplier";
 
         /**
-         * Maximum block length of data read from disk in a single operation during a replay.
+         * The type id of the {@link Counter} used for keeping track of the number of errors that have occurred.
          */
-        static final int MAX_BLOCK_LENGTH = 2 * 1024 * 1024;
+        public static final int ARCHIVE_ERROR_COUNT_TYPE_ID = 101;
+
+        /**
+         * Size in bytes of the error buffer for the archive when not externally provided.
+         */
+        public static final String ERROR_BUFFER_LENGTH_PROP_NAME = "aeron.archive.error.buffer.length";
+
+        /**
+         * Size in bytes of the error buffer for the archive when not eternally provided.
+         */
+        public static final int ERROR_BUFFER_LENGTH_DEFAULT = 1024 * 1024;
 
         /**
          * Get the directory name to be used for storing the archive.
@@ -372,6 +400,7 @@ public class Archive implements AutoCloseable
          * </ul>
          *
          * @return level at which files should be sync'ed to disk.
+         * @see #FILE_SYNC_LEVEL_PROP_NAME
          */
         public static int fileSyncLevel()
         {
@@ -379,7 +408,7 @@ public class Archive implements AutoCloseable
         }
 
         /**
-         * The level at which the catalog file should be sync'ed to disk.
+         * The level at which the catalog file and directory should be sync'ed to disk.
          * <ul>
          * <li>0 - normal writes.</li>
          * <li>1 - sync file data.</li>
@@ -387,6 +416,7 @@ public class Archive implements AutoCloseable
          * </ul>
          *
          * @return level at which files should be sync'ed to disk.
+         * @see #CATALOG_FILE_SYNC_LEVEL_PROP_NAME
          */
         public static int catalogFileSyncLevel()
         {
@@ -530,6 +560,42 @@ public class Archive implements AutoCloseable
         {
             return System.getProperty(REPLICATION_CHANNEL_PROP_NAME, REPLICATION_CHANNEL_DEFAULT);
         }
+
+        /**
+         * Size in bytes of the error buffer in the mark file.
+         *
+         * @return length of error buffer in bytes.
+         * @see #ERROR_BUFFER_LENGTH_PROP_NAME
+         */
+        public static int errorBufferLength()
+        {
+            return getSizeAsInt(ERROR_BUFFER_LENGTH_PROP_NAME, ERROR_BUFFER_LENGTH_DEFAULT);
+        }
+
+        /**
+         * The value {@link #AUTHENTICATOR_SUPPLIER_DEFAULT} or system property
+         * {@link #AUTHENTICATOR_SUPPLIER_PROP_NAME} if set.
+         *
+         * @return {@link #AUTHENTICATOR_SUPPLIER_DEFAULT} or system property
+         * {@link #AUTHENTICATOR_SUPPLIER_PROP_NAME} if set.
+         */
+        public static AuthenticatorSupplier authenticatorSupplier()
+        {
+            final String supplierClassName = System.getProperty(
+                AUTHENTICATOR_SUPPLIER_PROP_NAME, AUTHENTICATOR_SUPPLIER_DEFAULT);
+
+            AuthenticatorSupplier supplier = null;
+            try
+            {
+                supplier = (AuthenticatorSupplier)Class.forName(supplierClassName).getConstructor().newInstance();
+            }
+            catch (final Exception ex)
+            {
+                LangUtil.rethrowUnchecked(ex);
+            }
+
+            return supplier;
+        }
     }
 
     /**
@@ -585,7 +651,9 @@ public class Archive implements AutoCloseable
         private Supplier<IdleStrategy> replayerIdleStrategySupplier;
         private Supplier<IdleStrategy> recorderIdleStrategySupplier;
         private EpochClock epochClock;
+        private AuthenticatorSupplier authenticatorSupplier;
 
+        private int errorBufferLength = 0;
         private ErrorHandler errorHandler;
         private AtomicCounter errorCounter;
         private CountedErrorHandler countedErrorHandler;
@@ -622,11 +690,53 @@ public class Archive implements AutoCloseable
                 throw new ConcurrentConcludeException();
             }
 
-            Objects.requireNonNull(errorHandler, "Error handler must be supplied");
+            if (catalogFileSyncLevel < fileSyncLevel)
+            {
+                throw new ConfigurationException(
+                    "catalogFileSyncLevel " + catalogFileSyncLevel + " < fileSyncLevel " + fileSyncLevel);
+            }
+
+            if (null == archiveDir)
+            {
+                archiveDir = new File(archiveDirectoryName);
+            }
+
+            if (deleteArchiveOnStart && archiveDir.exists())
+            {
+                IoUtil.delete(archiveDir, false);
+            }
+
+            if (!archiveDir.exists() && !archiveDir.mkdirs())
+            {
+                throw new ArchiveException(
+                    "failed to create archive dir: " + archiveDir.getAbsolutePath());
+            }
+
+            archiveDirChannel = channelForDirectorySync(archiveDir, catalogFileSyncLevel);
 
             if (null == epochClock)
             {
-                epochClock = new SystemEpochClock();
+                epochClock = SystemEpochClock.INSTANCE;
+            }
+
+            if (null != aeron)
+            {
+                aeronDirectoryName = aeron.context().aeronDirectoryName();
+            }
+
+            if (null == markFile)
+            {
+                if (0 == errorBufferLength && null == errorHandler)
+                {
+                    errorBufferLength = Configuration.errorBufferLength();
+                }
+
+                markFile = new ArchiveMarkFile(this);
+            }
+
+            if (null == errorHandler)
+            {
+                errorHandler = new LoggingErrorHandler(new DistinctErrorLog(markFile.errorBuffer(), epochClock));
             }
 
             if (null == aeron)
@@ -645,7 +755,7 @@ public class Archive implements AutoCloseable
 
                 if (null == errorCounter)
                 {
-                    errorCounter = aeron.addCounter(SYSTEM_COUNTER_TYPE_ID, "Archive errors");
+                    errorCounter = aeron.addCounter(Configuration.ARCHIVE_ERROR_COUNT_TYPE_ID, "Archive errors");
                 }
             }
 
@@ -691,24 +801,6 @@ public class Archive implements AutoCloseable
                 }
             }
 
-            if (null == archiveDir)
-            {
-                archiveDir = new File(archiveDirectoryName);
-            }
-
-            if (deleteArchiveOnStart && archiveDir.exists())
-            {
-                IoUtil.delete(archiveDir, false);
-            }
-
-            if (!archiveDir.exists() && !archiveDir.mkdirs())
-            {
-                throw new ArchiveException(
-                    "failed to create archive dir: " + archiveDir.getAbsolutePath());
-            }
-
-            archiveDirChannel = channelForDirectorySync(archiveDir, catalogFileSyncLevel);
-
             if (!BitUtil.isPowerOfTwo(segmentFileLength))
             {
                 throw new ArchiveException("segment file length not a power of 2: " + segmentFileLength);
@@ -718,9 +810,9 @@ public class Archive implements AutoCloseable
                 throw new ArchiveException("segment file length not in valid range: " + segmentFileLength);
             }
 
-            if (null == markFile)
+            if (null == authenticatorSupplier)
             {
-                markFile = new ArchiveMarkFile(this);
+                authenticatorSupplier = Configuration.authenticatorSupplier();
             }
 
             if (null == catalog)
@@ -739,6 +831,8 @@ public class Archive implements AutoCloseable
             int expectedCount = DEDICATED == threadingMode ? 2 : 0;
             expectedCount += aeron.conductorAgentInvoker() == null ? 1 : 0;
             abortLatch = new CountDownLatch(expectedCount);
+
+            markFile.signalReady();
         }
 
         /**
@@ -1285,6 +1379,8 @@ public class Archive implements AutoCloseable
          * </ul>
          *
          * @return the level to be applied for file write.
+         * @see #catalogFileSyncLevel()
+         * @see Configuration#FILE_SYNC_LEVEL_PROP_NAME
          */
         int fileSyncLevel()
         {
@@ -1301,6 +1397,8 @@ public class Archive implements AutoCloseable
          *
          * @param syncLevel to be applied for file writes.
          * @return this for a fluent API.
+         * @see #catalogFileSyncLevel()
+         * @see Configuration#FILE_SYNC_LEVEL_PROP_NAME
          */
         public Context fileSyncLevel(final int syncLevel)
         {
@@ -1317,6 +1415,8 @@ public class Archive implements AutoCloseable
          * </ul>
          *
          * @return the level to be applied for file write.
+         * @see #fileSyncLevel()
+         * @see Configuration#CATALOG_FILE_SYNC_LEVEL_PROP_NAME
          */
         int catalogFileSyncLevel()
         {
@@ -1333,6 +1433,8 @@ public class Archive implements AutoCloseable
          *
          * @param syncLevel to be applied for file writes.
          * @return this for a fluent API.
+         * @see #fileSyncLevel()
+         * @see Configuration#CATALOG_FILE_SYNC_LEVEL_PROP_NAME
          */
         public Context catalogFileSyncLevel(final int syncLevel)
         {
@@ -1450,6 +1552,30 @@ public class Archive implements AutoCloseable
         {
             this.threadFactory = threadFactory;
             return this;
+        }
+
+        /**
+         * Set the error buffer length in bytes to use.
+         *
+         * @param errorBufferLength in bytes to use.
+         * @return this for a fluent API.
+         * @see Configuration#ERROR_BUFFER_LENGTH_PROP_NAME
+         */
+        public Context errorBufferLength(final int errorBufferLength)
+        {
+            this.errorBufferLength = errorBufferLength;
+            return this;
+        }
+
+        /**
+         * The error buffer length in bytes.
+         *
+         * @return error buffer length in bytes.
+         * @see Configuration#ERROR_BUFFER_LENGTH_PROP_NAME
+         */
+        public int errorBufferLength()
+        {
+            return errorBufferLength;
         }
 
         /**
@@ -1668,6 +1794,28 @@ public class Archive implements AutoCloseable
             return maxCatalogEntries;
         }
 
+        /**
+         * Get the {@link AuthenticatorSupplier} that should be used for the Archive.
+         *
+         * @return the {@link AuthenticatorSupplier} to be used for the Archive.
+         */
+        public AuthenticatorSupplier authenticatorSupplier()
+        {
+            return authenticatorSupplier;
+        }
+
+        /**
+         * Set the {@link AuthenticatorSupplier} that will be used for the Archive.
+         *
+         * @param authenticatorSupplier {@link AuthenticatorSupplier} to use for the Archive.
+         * @return this for a fluent API.
+         */
+        public Context authenticatorSupplier(final AuthenticatorSupplier authenticatorSupplier)
+        {
+            this.authenticatorSupplier = authenticatorSupplier;
+            return this;
+        }
+
         CountDownLatch abortLatch()
         {
             return abortLatch;
@@ -1685,6 +1833,7 @@ public class Archive implements AutoCloseable
             CloseHelper.close(archiveDirChannel);
             archiveDirChannel = null;
 
+            CloseHelper.close(errorCounter);
             if (errorHandler instanceof AutoCloseable)
             {
                 CloseHelper.close((AutoCloseable)errorHandler);
