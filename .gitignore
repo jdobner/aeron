@@ -28,6 +28,7 @@ classes
 # the build
 build-local.properties
 .gradle
+.gradletasknamecache
 build
 cmake-build-debug
 cmake-build-release
